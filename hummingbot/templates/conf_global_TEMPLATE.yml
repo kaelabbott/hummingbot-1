@@ -24,6 +24,8 @@ binance_perpetual_testnet_api_secret: null
 bittrex_api_key: null
 bittrex_secret_key: null
 
+bitblinx_api_key: null
+
 coinbase_pro_api_key: null
 coinbase_pro_secret_key: null
 coinbase_pro_passphrase: null

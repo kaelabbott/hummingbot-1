@@ -32,6 +32,9 @@ crypto_com_taker_fee:
 bitfinex_maker_fee:
 bitfinex_taker_fee:
 
+bitblinx_maker_fee:
+bitblinx_taker_fee:
+
 kraken_maker_fee:
 kraken_taker_fee:
 
