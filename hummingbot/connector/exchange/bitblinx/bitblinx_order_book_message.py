@@ -25,8 +25,6 @@ class BitblinxOrderBookMessage(OrderBookMessage):
         if timestamp is None:
             if message_type is OrderBookMessageType.SNAPSHOT:
                 raise ValueError("timestamp must not be None when initializing snapshot messages.")
-            print('DEBUG CONTENT-----------------------------------------')
-            print(content)
             timestamp = pd.Timestamp(content["mts"], tz="UTC").timestamp()
             
 
@@ -57,20 +55,22 @@ class BitblinxOrderBookMessage(OrderBookMessage):
     @property
     def asks(self) -> List[OrderBookRow]:
         asks = self.content['asks']
-        
+        if not asks:
+            return
         
         return [
-            OrderBookRow(float(ask['price']), float(ask['quantity']), self.update_id) for ask in asks
+            OrderBookRow(float(ask['price']), float(ask['quantity']), self.update_id) if 'price' in ask else OrderBookRow(float(ask[0]), float(ask[1]),self.update_id) for ask in asks
         ]
 
 
     @property
     def bids(self) -> List[OrderBookRow]:
         bids = self.content['bids']
-        
-        
+        if not bids:
+            return
+
         return [
-            OrderBookRow(float(bid['price']), float(bid['quantity']), self.update_id) for  bid in bids
+            OrderBookRow(float(bid['price']), float(bid['quantity']), self.update_id) for bid in bids
         ]
 
     def __eq__(self, other) -> bool:

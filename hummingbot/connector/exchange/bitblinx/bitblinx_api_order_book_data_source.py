@@ -66,7 +66,8 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             "amount": content['result']['quantity'],
             "price": content['result']['price'],
             }
-    def _prepare_snapshot(self, pair: str, raw_snapshot: dict) -> Dict[str, Any]:
+    def _prepare_snapshot(self, pair: str, raw_snapshot: dict, ) -> Dict[str, Any]:
+        raw_snapshot = ujson.loads(raw_snapshot)
         """
         Return structure of three elements:
             symbol: traded pair symbol
@@ -76,7 +77,8 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         update_id = time.time()
         bids = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['buy'] ]
         asks = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['sell'] ]
-
+        if not bids or not asks:
+            return False
         return {
             "symbol": pair,
             "bids": bids,
@@ -137,9 +139,10 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 raise IOError(f"Error fetching bitblinx market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
             data: Dict[str, Any] = await response.json()
+            
             data['result']['bids'] = data['result'].pop('buy')
             data['result']['asks'] = data['result'].pop('sell')
-
+            
             # Need to add the symbol into the snapshot message for the Kafka message queue.
             # Because otherwise, there'd be no way for the receiver to know which market the
             # snapshot belongs to.
@@ -158,6 +161,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             )
             order_book = self.order_book_create_function()
             order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.timestamp)
+            print(order_book)
             return order_book
     
     async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
@@ -230,6 +234,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
 
                         async for raw_msg in self._get_response(ws):
                             msg = self._prepare_trade(raw_msg)
+                        
                             if msg:
                                 msg_book: OrderBookMessage = BitblinxOrderBook.trade_message_from_exchange(
                                     msg,
@@ -266,15 +271,22 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         await ws.send(ujson.dumps(payload))
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
-                        raw_snapshot = await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
-                        content = ujson.loads(raw_snapshot)
-                        snapshot = self._prepare_snapshot(trading_pair,content)
-                        snapshot_timestamp: float = time.time()
-                        snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
-                            snapshot,
-                            snapshot_timestamp
-                        )
-                        output.put_nowait(snapshot_msg)
+                     #   await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
+
+                        async for raw_msg in self._get_response(ws):
+                            if raw_msg:
+                                snapshot = self._prepare_snapshot(trading_pair,raw_msg)
+                            
+                                
+                            if snapshot:
+                                snapshot_timestamp: float = time.time()
+                                snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
+                                    snapshot,
+                                    snapshot_timestamp
+                                )
+                                output.put_nowait(snapshot_msg)
+                            else:
+                                continue
                     
 
             except Exception as err:

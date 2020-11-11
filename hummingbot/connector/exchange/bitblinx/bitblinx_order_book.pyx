@@ -108,7 +108,6 @@ class BitblinxOrderBook(OrderBook):
 
         if metadata:
             msg.update(metadata)
-        print("MESSAGE: {0}".format(msg))
         trade_type = TradeType.SELL if float(msg["amount"]) < 0 else TradeType.BUY
         msg.update({
             "trading_pair": msg["symbol"],
