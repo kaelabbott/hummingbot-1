@@ -524,17 +524,20 @@ class FtxExchange(ExchangeBase):
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
         account_info = self._api_rest_client.get_balances()
-        if not account_info['success']:
-            self.logger().info(f"Info - API error: {account_info}")
-        for currency in account_info:
-            asset_name = currency['coin']
-            self._account_available_balances[asset_name] = Decimal(str(currency['free']))
-            self._account_balances[asset_name] = Decimal(str(currency['total']))
-            remote_asset_names.add(asset_name)
-        asset_names_to_remove = local_asset_names.difference(remote_asset_names)
-        for asset_name in asset_names_to_remove:
-            del self._account_available_balances[asset_name]
-            del self._account_balances[asset_name]
+        if type(account_info) == list:
+            for currency in account_info:
+                asset_name = currency['coin']
+                self._account_available_balances[asset_name] = Decimal(str(currency['free']))
+                self._account_balances[asset_name] = Decimal(str(currency['total']))
+                remote_asset_names.add(asset_name)
+            asset_names_to_remove = local_asset_names.difference(remote_asset_names)
+            for asset_name in asset_names_to_remove:
+                del self._account_available_balances[asset_name]
+                del self._account_balances[asset_name]
+        else:
+            if account_info.get('success') is False:
+                if not account_info['success']:
+                    self.logger().info(f"Info - API error: {account_info}")
 
     async def _update_order_status(self):
         """
