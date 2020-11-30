@@ -66,6 +66,7 @@ class FtxExchange(ExchangeBase):
     def __init__(self,
                  ftx_api_key: str,
                  ftx_secret_key: str,
+                 ftx_subaccount_name: str = None,
                  trading_pairs: Optional[List[str]] = None,
                  trading_required: bool = True
                  ):
@@ -90,7 +91,7 @@ class FtxExchange(ExchangeBase):
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
         self._last_poll_timestamp = 0
-        self._api_rest_client = FtxClient(ftx_api_key, ftx_secret_key)
+        self._api_rest_client = FtxClient(ftx_api_key, ftx_secret_key, ftx_subaccount_name)
         self._check_network_interval = 60.0
         self._order_book_tracker.start()
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
@@ -523,6 +524,8 @@ class FtxExchange(ExchangeBase):
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
         account_info = self._api_rest_client.get_balances()
+        if not account_info['success']:
+            self.logger().info(f"Info - API error: {account_info}")
         for currency in account_info:
             asset_name = currency['coin']
             self._account_available_balances[asset_name] = Decimal(str(currency['free']))

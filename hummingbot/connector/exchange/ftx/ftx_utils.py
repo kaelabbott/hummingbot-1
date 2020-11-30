@@ -70,4 +70,10 @@ KEYS = {
                   required_if=using_exchange("ftx"),
                   is_secure=True,
                   is_connect_key=True),
+    "ftx_subaccount_name":
+        ConfigVar(key="ftx_subaccount_name",
+                  prompt="Enter your Ftx subaccount name (optional) >>> ",
+                  required_if=using_exchange("ftx"),
+                  is_secure=True,
+                  is_connect_key=True),
 }
