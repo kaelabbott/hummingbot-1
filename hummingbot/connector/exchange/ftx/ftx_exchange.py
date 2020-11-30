@@ -48,7 +48,7 @@ s_decimal_NaN = Decimal("nan")
 
 class FtxExchange(ExchangeBase):
     """
-    CryptoComExchange connects with Crypto.com exchange and provides order book pricing, user account tracking and
+    FtxExchange connects with Crypto.com exchange and provides order book pricing, user account tracking and
     trading functionality.
     """
     API_CALL_TIMEOUT = 15.0
@@ -71,7 +71,7 @@ class FtxExchange(ExchangeBase):
                  trading_required: bool = True
                  ):
         """
-        :param bitblinx_api_key: The API key to connect to private bitblinx APIs.
+        :param ftx_api_key: The API key to connect to private ftx APIs.
         :param trading_pairs: The market trading pairs which to track order book data.
         :param trading_required: Whether actual trading is needed.
         """
@@ -489,7 +489,7 @@ class FtxExchange(ExchangeBase):
             self.logger().network(
                 f"Failed to cancel order {order_id}: {str(e)}",
                 exc_info=True,
-                app_warning_msg=f"Failed to cancel the order {order_id} on CryptoCom. "
+                app_warning_msg=f"Failed to cancel the order {order_id} on FTX. "
                                 f"Check API key and network connection."
             )
 
@@ -513,7 +513,7 @@ class FtxExchange(ExchangeBase):
                 self.logger().error(str(e), exc_info=True)
                 self.logger().network("Unexpected error while fetching account updates.",
                                       exc_info=True,
-                                      app_warning_msg="Could not fetch account updates from bitblinx. "
+                                      app_warning_msg="Could not fetch account updates from FTX. "
                                                       "Check API key and network connection.")
                 await asyncio.sleep(0.5)
 
@@ -557,6 +557,8 @@ class FtxExchange(ExchangeBase):
                 if isinstance(update_result, Exception):
                     raise update_result
                 if update_result:
+                    print("#################### DEBUG LEL")
+                    print(update_result)
                     await safe_gather(self._process_order_message(update_result))
 
     async def _process_order_message(self, order_msg: Dict[str, Any]):
@@ -661,7 +663,7 @@ class FtxExchange(ExchangeBase):
             self.logger().network(
                 "Unexpected error cancelling orders.",
                 exc_info=True,
-                app_warning_msg="Failed to cancel order on bitblinx. Check API key and network connection."
+                app_warning_msg="Failed to cancel order on Ftx. Check API key and network connection."
             )
         failed_cancellations = [CancellationResult(oid, False) for oid in order_id_set]
         return successful_cancellations + failed_cancellations
@@ -707,14 +709,14 @@ class FtxExchange(ExchangeBase):
                 self.logger().network(
                     "Unknown error. Retrying after 1 seconds.",
                     exc_info=True,
-                    app_warning_msg="Could not fetch user events from CryptoCom. Check API key and network connection."
+                    app_warning_msg="Could not fetch user events from Ftx. Check API key and network connection."
                 )
                 await asyncio.sleep(1.0)
 
     async def _user_stream_event_listener(self):
         """
         Listens to message in _user_stream_tracker.user_stream queue. The messages are put in by
-        CryptoComAPIUserStreamDataSource.
+        FtxAPIUserStreamDataSource.
         """
         async for event_message in self._iter_user_event_queue():
             try:
