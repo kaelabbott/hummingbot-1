@@ -38,16 +38,16 @@ class BitblinxAPIUserStreamDataSource(UserStreamTrackerDataSource):
         """
         Subscribe to active orders via web socket
         """
-
         try:
             ws = BitblinxWebsocket(self._bitblinx_auth)
             await ws.connect()
             await ws.authenticate()
             async for msg in ws.on_message():
-                
                 yield msg
-                
                 self._last_recv_time = time.time()
+                print('MESSGAE')
+                print(msg)
+
                 if (msg.get("result") is None):
                     continue
         except Exception as e:
@@ -63,7 +63,6 @@ class BitblinxAPIUserStreamDataSource(UserStreamTrackerDataSource):
         :param ev_loop: ev_loop to execute this function in
         :param output: an async queue where the incoming messages are stored
         """
-
         while True:
             try:
                 async for msg in self._listen_to_orders_trades_balances():

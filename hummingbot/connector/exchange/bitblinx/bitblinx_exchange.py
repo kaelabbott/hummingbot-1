@@ -9,6 +9,7 @@ from typing import (
 from decimal import Decimal
 import asyncio
 import json
+import ujson
 import aiohttp
 import math
 import time
@@ -42,6 +43,7 @@ from hummingbot.connector.exchange.bitblinx.bitblinx_auth import BitblinxAuth
 from hummingbot.connector.exchange.bitblinx.bitblinx_in_flight_order import BitblinxInFlightOrder
 from hummingbot.connector.exchange.bitblinx import bitblinx_utils
 from hummingbot.connector.exchange.bitblinx import BITBLINX_REST
+from hummingbot.connector.exchange.bitblinx.bitblinx_websocket import BitblinxWebsocket
 ctce_logger = None
 s_decimal_NaN = Decimal("nan")
 
@@ -77,9 +79,7 @@ class BitblinxExchange(ExchangeBase):
         self._trading_required = trading_required
         self._bitblinx_auth = BitblinxAuth(bitblinx_api_key)
         self._order_book_tracker = BitblinxOrderBookTracker(trading_pairs=trading_pairs)
-       
         self._user_stream_tracker = BitblinxUserStreamTracker(self._bitblinx_auth, trading_pairs)
-         
         self._ev_loop = asyncio.get_event_loop()
         self._shared_client = None
         self._poll_notifier = asyncio.Event()
@@ -91,16 +91,14 @@ class BitblinxExchange(ExchangeBase):
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
         self._last_poll_timestamp = 0
-        
-     
-        
+        self._ws = BitblinxWebsocket(self._bitblinx_auth)
+
     @property
     def name(self) -> str:
         return "bitblinx"
 
     @property
     def order_books(self) -> Dict[str, OrderBook]:
-        
         return self._order_book_tracker.order_books
 
     @property
@@ -109,7 +107,6 @@ class BitblinxExchange(ExchangeBase):
 
     @property
     def in_flight_orders(self) -> Dict[str, BitblinxInFlightOrder]:
-        
         return self._in_flight_orders
 
     @property
@@ -119,8 +116,8 @@ class BitblinxExchange(ExchangeBase):
         """
         return {
             "order_books_initialized": self._order_book_tracker.ready,
-            "account_balance":len(self._account_balances) > 0 if self._trading_required else True,
-            "trading_rule_initialized":  len(self._trading_rules) > 0,
+            "account_balance": len(self._account_balances) > 0 if self._trading_required else True,
+            "trading_rule_initialized": len(self._trading_rules) > 0,
         }
 
     @property
@@ -185,16 +182,13 @@ class BitblinxExchange(ExchangeBase):
         It starts tracking order book, polling trading rules,
         updating statuses and tracking user data.
         """
-       # self._stop_network()
         self._order_book_tracker.start()
-     
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
             self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
             self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
 
-        
     def _stop_network(self):
         self._order_book_tracker.stop()
         if self._status_polling_task is not None:
@@ -212,10 +206,46 @@ class BitblinxExchange(ExchangeBase):
         if self._user_stream_event_listener_task is not None:
             self._user_stream_event_listener_task.cancel()
             self._user_stream_event_listener_task = None
-    
 
     async def stop_network(self):
         self._stop_network()
+
+    async def get_ws(self):
+        if self._ws._client is None or self._ws._client.open is False:
+            await self._ws.connect()
+            await self._ws.authenticate()
+        return self._ws
+
+    async def _ws_message_listener_balance(self, symbol):
+        try:
+            await self._ws.connect()
+            await self._ws.authenticate()
+            base_asset = symbol.split('/')[0]
+            quote_asset = symbol.split('/')[1]
+            payload: Dict[str, Any] = {
+                "method": "balances",
+                "params": {
+                    "includeSummary": False,
+                    'currency': base_asset
+                },
+                "id": 1
+            }
+            await self._ws.request(payload)
+            await asyncio.wait_for(self._ws._client.recv(), timeout=30)
+            balance_entry = await asyncio.wait_for(self._ws._client.recv(), timeout=30)
+            balance_entry = ujson.loads(balance_entry)
+            self._account_balances[base_asset] = Decimal(str(balance_entry['result']['total'][base_asset]))
+            self._account_balances[quote_asset] = Decimal(str(balance_entry['result']['total'][quote_asset]))
+            self._account_available_balances[base_asset] = Decimal(str(balance_entry['result']['available'][base_asset]))
+            self._account_available_balances[quote_asset] = Decimal(str(balance_entry['result']['available'][quote_asset]))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.logger().network(
+                "Unexpected error while listeneing to messages.",
+                exc_info=True,
+                app_warning_msg="Could not listen to Bitfinex messages."
+            )
 
     async def check_network(self) -> NetworkStatus:
         """
@@ -257,9 +287,7 @@ class BitblinxExchange(ExchangeBase):
                 await asyncio.sleep(0.5)
 
     async def _update_trading_rules(self):
-        
         symbol_info = await self._api_request("get", path_url="symbols")
-        
         self._trading_rules.clear()
         self._trading_rules = self._format_trading_rules(symbol_info)
 
@@ -290,7 +318,6 @@ class BitblinxExchange(ExchangeBase):
             }],
         """
         result = {}
-        
         for rule in symbol_info["result"]:
             try:
                 trading_pair = rule["symbol"]
@@ -320,25 +347,24 @@ class BitblinxExchange(ExchangeBase):
         :returns A response in json format.
         """
         url = f"{BITBLINX_REST}/{path_url}"
-       
         client = await self._http_client()
         if is_auth_required:
-            data = {"params": params}
             headers = self._bitblinx_auth.generate_api_headers()
         else:
-            headers = {'Accept-Language': 'en',
-                        "Content-Type": "application/json"}
+            headers = {
+                'Accept-Language': 'en',
+                "Content-Type": "application/json"
+            }
 
         if method == "get":
             response = await client.get(url, headers=headers)
         elif method == "post":
             post_json = json.dumps(params)
             response = await client.post(url, data=post_json, headers=headers)
-        elif method ==  "del":
+        elif method == "del":
             response = await client.delete(url, headers=headers)
         else:
             raise NotImplementedError
-
         try:
             parsed_response = json.loads(await response.text())
         except Exception as e:
@@ -354,18 +380,17 @@ class BitblinxExchange(ExchangeBase):
         """
         Returns a price step, a minimum price increment for a given trading pair.
         """
-        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws( trading_pair)]
+        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair)]
         return trading_rule.min_price_increment
 
     def get_order_size_quantum(self, trading_pair: str, order_size: Decimal):
         """
         Returns an order amount step, a minimum amount increment for a given trading pair.
         """
-        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws( trading_pair)]
+        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair)]
         return Decimal(trading_rule.min_base_amount_increment)
 
     def get_order_book(self, trading_pair: str) -> OrderBook:
-        print(self._order_book_tracker.start())
         if trading_pair not in self._order_book_tracker.order_books:
             raise ValueError(f"No order book exists for '{trading_pair}'.")
         return self._order_book_tracker.order_books[trading_pair]
@@ -382,7 +407,7 @@ class BitblinxExchange(ExchangeBase):
         :returns A new internal order id
         """
         order_id: str = bitblinx_utils.get_new_client_order_id(True, trading_pair)
-        safe_ensure_future(self._create_order(TradeType.BUY, order_id,trading_pair, amount, order_type, price))
+        safe_ensure_future(self._create_order(TradeType.BUY, order_id, trading_pair, amount, order_type, price))
         return order_id
 
     def sell(self, trading_pair: str, amount: Decimal, order_type=OrderType.MARKET,
@@ -428,13 +453,13 @@ class BitblinxExchange(ExchangeBase):
         """
         if not order_type.is_limit_type():
             raise Exception(f"Unsupported order type: {order_type}")
-        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws( trading_pair)]
+        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair)]
         amount = self.quantize_order_amount(trading_pair, amount)
         price = self.quantize_order_price(trading_pair, price)
         if amount < trading_rule.min_order_size:
             raise ValueError(f"Buy order amount {amount} is lower than the minimum order size "
                              f"{trading_rule.min_order_size}.")
-        api_params = {"symbol": bitblinx_utils.convert_to_exchange_trading_pair_ws( trading_pair ),
+        api_params = {"symbol": bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair),
                       "side": trade_type.name.lower(),
                       "type": "limit",
                       "price": f"{price:f}",
@@ -452,11 +477,10 @@ class BitblinxExchange(ExchangeBase):
             order_result = await self._api_request("post", "orders", api_params, True)
             exchange_order_id = str(order_result["result"]["orderID"])
             tracked_order = self._in_flight_orders.get(order_id)
-            if tracked_order is not None:
+            if tracked_order is not None and exchange_order_id:
+                tracked_order.update_exchange_order_id(exchange_order_id)
                 self.logger().info(f"Created {order_type.name} {trade_type.name} order {order_id} for "
                                    f"{amount} {trading_pair}.")
-                tracked_order.exchange_order_id = exchange_order_id
-
             event_tag = MarketEvent.BuyOrderCreated if trade_type is TradeType.BUY else MarketEvent.SellOrderCreated
             event_class = BuyOrderCreatedEvent if trade_type is TradeType.BUY else SellOrderCreatedEvent
             self.trigger_event(event_tag,
@@ -473,7 +497,7 @@ class BitblinxExchange(ExchangeBase):
         except Exception as e:
             self.stop_tracking_order(order_id)
             self.logger().network(
-                f"Error submitting {trade_type.name} {order_type.name} order to Crypto.com for "
+                f"Error submitting {trade_type.name} {order_type.name} order to bitblinx for "
                 f"{amount} {trading_pair} "
                 f"{price}.",
                 exc_info=True,
@@ -526,14 +550,12 @@ class BitblinxExchange(ExchangeBase):
             if tracked_order.exchange_order_id is None:
                 await tracked_order.get_exchange_order_id()
             ex_order_id = tracked_order.exchange_order_id
-           
             result = await self._api_request(
                 "del",
                 f"orders/{ex_order_id}",
                 is_auth_required=True
-                
             )
-            if result["status"] == True:
+            if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
                 if wait_for_status:
                     from hummingbot.core.utils.async_utils import wait_til
@@ -569,7 +591,7 @@ class BitblinxExchange(ExchangeBase):
                 self.logger().error(str(e), exc_info=True)
                 self.logger().network("Unexpected error while fetching account updates.",
                                       exc_info=True,
-                                      app_warning_msg="Could not fetch account updates from Crypto.com. "
+                                      app_warning_msg="Could not fetch account updates from bitblinx. "
                                                       "Check API key and network connection.")
                 await asyncio.sleep(0.5)
 
@@ -579,18 +601,13 @@ class BitblinxExchange(ExchangeBase):
         """
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
-        account_info = await self._api_request("get", "user/balances", {},True)
-       
-        
+        account_info = await self._api_request("get", "user/balances", {}, True)
         for currency in account_info['result']['available']:
-            
             asset_name = currency
-            if account_info['result']['summary'].get(asset_name) != None:
-                self._account_available_balances[asset_name] = Decimal(str(account_info['result']['summary'][asset_name]))
-            
+            if account_info['result']['summary'].get(asset_name) is not None:
+                self._account_available_balances[asset_name] = Decimal(str(account_info['result']['available'][asset_name]))
             self._account_balances[asset_name] = Decimal(str(account_info['result']['available'][asset_name]))
             remote_asset_names.add(asset_name)
-
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
         for asset_name in asset_names_to_remove:
             del self._account_available_balances[asset_name]
@@ -602,63 +619,65 @@ class BitblinxExchange(ExchangeBase):
         """
         last_tick = self._last_poll_timestamp / self.UPDATE_ORDER_STATUS_MIN_INTERVAL
         current_tick = self.current_timestamp / self.UPDATE_ORDER_STATUS_MIN_INTERVAL
-
         if current_tick > last_tick and len(self._in_flight_orders) > 0:
             tracked_orders = list(self._in_flight_orders.values())
             tasks = []
-            tasks_trades = []
             for tracked_order in tracked_orders:
                 order_id = await tracked_order.get_exchange_order_id()
+                client_oid = tracked_order.client_order_id
                 tasks.append(self._api_request("get",
                                                f"orders/{order_id}",
                                                is_auth_required=True))
-                tasks_trades.append(self._api_request("get",
-                                                f"user/trades?startDate={int(time.time())}&endDate={int(time.time())}&page=1&itemsPerPage=10",
-                                                is_auth_required=True))
-                                                  
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = await safe_gather(*tasks, return_exceptions=True)
-            new_u_r = await safe_gather(*tasks_trades,return_exceptions=True)
             for update_result in update_results:
                 if isinstance(update_result, Exception):
                     raise update_result
-                if "result" not in update_result:
+                if update_result['status'] is False:
                     self.logger().info(f"_update_order_status result not in resp: {update_result}")
-                    continue
-                
-                    
-                #await self._process_trade_message(update_result['r'])
-                #self._process_order_message(update_result["result"])
+                    self.stop_tracking_order(client_oid)
+                else:
+                    await safe_gather(self._process_order_message(update_result))
 
-    def _process_order_message(self, order_msg: Dict[str, Any]):
+    async def _process_order_message(self, order_msg: Dict[str, Any]):
         """
         Updates in-flight order and triggers cancellation or failure event if needed.
         :param order_msg: The order response from either REST or web socket API (they are of the same format)
         """
-        client_order_id = order_msg["client_oid"]
-        if client_order_id not in self._in_flight_orders:
+        tracked_order = None
+        tracked_orders = list(self._in_flight_orders.values())
+        client_order_id = order_msg.get('orderID')
+        if client_order_id is None:
+            client_order_id = order_msg['result']["orderID"]
+        for item in tracked_orders:
+            if client_order_id != item.exchange_order_id:
+                tracked_order = item
+        if not tracked_order:
             return
-        tracked_order = self._in_flight_orders[client_order_id]
         # Update order execution status
-        tracked_order.last_state = order_msg["status"].upper()
+        if type(order_msg.get('status')) == bool:
+            tracked_order.last_state = order_msg['result']["status"]
+        else:
+            tracked_order.last_state = order_msg.get('status')
         if tracked_order.is_cancelled:
+            self.stop_tracking_order(client_order_id)
             self.logger().info(f"Successfully cancelled order {client_order_id}.")
             self.trigger_event(MarketEvent.OrderCancelled,
                                OrderCancelledEvent(
                                    self.current_timestamp,
-                                   client_order_id))
+                                   tracked_order.client_order_id))
             tracked_order.cancelled_event.set()
-            self.stop_tracking_order(client_order_id)
         elif tracked_order.is_failure:
-            self.logger().info(f"The market order {client_order_id} has failed according to order status API. "
-                               f"Reason: {crypto_com_utils.get_api_reason(order_msg['reason'])}")
+            self.stop_tracking_order(client_order_id)
+            self.logger().info(f"The market order {client_order_id} has failed according to order status API. ")
             self.trigger_event(MarketEvent.OrderFailure,
                                MarketOrderFailureEvent(
                                    self.current_timestamp,
-                                   client_order_id,
+                                   tracked_order.client_order_id,
                                    tracked_order.order_type
                                ))
-            self.stop_tracking_order(client_order_id)
+        self.logger().info(f"_Returning_comparing ID- {client_order_id} - {self.in_flight_orders}")
+        return
 
     async def _process_trade_message(self, trade_msg: Dict[str, Any]):
         """
@@ -667,13 +686,13 @@ class BitblinxExchange(ExchangeBase):
         """
         for order in self._in_flight_orders.values():
             await order.get_exchange_order_id()
-        track_order = [o for o in self._in_flight_orders.values() if trade_msg["orderID"] == o.exchange_order_id]
+        track_order = [o for o in self._in_flight_orders.values() if trade_msg["orderUpdate"]['orderID'] == o.exchange_order_id]
         if not track_order:
             return
         tracked_order = track_order[0]
-      #  updated = tracked_order.update_with_trade_update(trade_msg)
-      #  if not updated:
-      #      return
+        updated = tracked_order.update_with_trade_update(trade_msg)
+        if not updated:
+            return
         self.trigger_event(
             MarketEvent.OrderFilled,
             OrderFilledEvent(
@@ -682,14 +701,14 @@ class BitblinxExchange(ExchangeBase):
                 tracked_order.trading_pair,
                 tracked_order.trade_type,
                 tracked_order.order_type,
-                Decimal(str(trade_msg["traded_price"])),
-                Decimal(str(trade_msg["traded_quantity"])),
-                TradeFee(0.0, [(trade_msg["fee_currency"], Decimal(str(trade_msg["fee"])))]),
-                exchange_trade_id=trade_msg["order_id"]
+                Decimal(str(trade_msg["price"])),
+                abs(Decimal(str(trade_msg["quantity"]))),
+                TradeFee(0.0, [(trade_msg["symbol"].split('/')[0], Decimal(str(trade_msg["fee"])))]),
+                exchange_trade_id=trade_msg["tradeId"]
             )
         )
-        if math.isclose(tracked_order.executed_amount_base, tracked_order.amount) or \
-                tracked_order.executed_amount_base >= tracked_order.amount:
+        if (math.isclose(tracked_order.executed_amount_base, tracked_order.amount) or
+                tracked_order.executed_amount_base >= tracked_order.amount):
             tracked_order.last_state = "FILLED"
             self.logger().info(f"The {tracked_order.trade_type.name} order "
                                f"{tracked_order.client_order_id} has completed "
@@ -733,7 +752,7 @@ class BitblinxExchange(ExchangeBase):
             self.logger().network(
                 "Unexpected error cancelling orders.",
                 exc_info=True,
-                app_warning_msg="Failed to cancel order on Crypto.com. Check API key and network connection."
+                app_warning_msg="Failed to cancel order on bitblinx. Check API key and network connection."
             )
 
         failed_cancellations = [CancellationResult(oid, False) for oid in order_id_set]
@@ -789,23 +808,16 @@ class BitblinxExchange(ExchangeBase):
         Listens to message in _user_stream_tracker.user_stream queue. The messages are put in by
         CryptoComAPIUserStreamDataSource.
         """
+
         async for event_message in self._iter_user_event_queue():
             try:
-                if "result" not in event_message or "channel" not in event_message["result"]:
-                    continue
-                channel = event_message["result"]["channel"]
-                if "user.trade" in channel:
-                    for trade_msg in event_message["result"]["data"]:
-                        await self._process_trade_message(trade_msg)
-                elif "user.order" in channel:
-                    for order_msg in event_message["result"]["data"]:
-                        self._process_order_message(order_msg)
-                elif channel == "user.balance":
-                    balances = event_message["result"]["data"]
-                    for balance_entry in balances:
-                        asset_name = balance_entry["currency"]
-                        self._account_balances[asset_name] = Decimal(str(balance_entry["balance"]))
-                        self._account_available_balances[asset_name] = Decimal(str(balance_entry["available"]))
+                channel = event_message["method"]
+                if "newUserTrade" in channel:
+                    await self._process_trade_message(event_message['result'])
+                    await self._ws_message_listener_balance(event_message['result']['symbol'])
+
+                elif "orderUpdate" in channel:
+                    await self._process_order_message(event_message["result"])
                 pass
             except asyncio.CancelledError:
                 raise

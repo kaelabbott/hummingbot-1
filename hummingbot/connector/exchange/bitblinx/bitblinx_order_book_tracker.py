@@ -1,10 +1,9 @@
 from collections import defaultdict, deque
 import logging
 import time
-from typing import Deque, Dict, List, Optional, Set
+from typing import Deque, Dict, List, Optional
 
 import asyncio
-import bisect
 
 from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.core.data_type.order_book_message import (
@@ -60,36 +59,27 @@ class BitblinxOrderBookTracker(OrderBookTracker):
     def exchange_name(self) -> str:
         return "bitblinx"
 
-    
-
     async def _order_book_diff_router(self):
         last_message_timestamp: float = time.time()
         messages_queued: int = 0
         messages_accepted: int = 0
         messages_rejected: int = 0
-
         while True:
             try:
                 order_book_message: BitblinxOrderBookMessage = await self._order_book_diff_stream.get()
                 trading_pair: str = order_book_message.trading_pair
-                print("TRADINGPARI")
-                print(order_book_message)
                 if trading_pair not in self._tracking_message_queues:
                     messages_queued += 1
                     # Save diff messages received before snapshots are ready
                     self._saved_message_queues[trading_pair].append(order_book_message)
                     continue
-
                 message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
                 order_book: BitblinxOrderBook = self._order_books[trading_pair]
-
                 if order_book.snapshot_uid > order_book_message.update_id:
                     messages_rejected += 1
                     continue
-
                 await message_queue.put(order_book_message)
                 messages_accepted += 1
-
                 # Log some statistics.
                 now: float = time.time()
                 if int(now / CALC_STAT_MINUTE) > int(last_message_timestamp / CALC_STAT_MINUTE):
@@ -100,9 +90,7 @@ class BitblinxOrderBookTracker(OrderBookTracker):
                     messages_accepted = 0
                     messages_rejected = 0
                     messages_queued = 0
-
                 last_message_timestamp = now
-
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -113,13 +101,12 @@ class BitblinxOrderBookTracker(OrderBookTracker):
                                     f"Retrying after {int(self.EXCEPTION_TIME_SLEEP)} seconds."
                 )
                 await asyncio.sleep(self.EXCEPTION_TIME_SLEEP)
+
     async def _track_single_book(self, trading_pair: str):
         message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
         order_book: OrderBook = self._order_books[trading_pair]
         last_message_timestamp: float = time.time()
         diff_messages_accepted: int = 0
-        print("PRDER BOOK")
-        print(order_book)
         while True:
             try:
                 message: OrderBookMessage = await message_queue.get()
@@ -153,16 +140,6 @@ class BitblinxOrderBookTracker(OrderBookTracker):
         Convert an incoming diff message to Tuple of np.arrays, and then convert to OrderBookRow
         :returns: Tuple(List[bids_row], List[asks_row])
         """
-        
         bids = [message.content["bids"]] if "bids" in message.content else []
         asks = [message.content["asks"]] if "asks" in message.content else []
         return bids, asks
-
-    # def _convert_snapshot_message_to_order_book_row(self, message):
-    #     """
-    #     Convert an incoming snapshot message to Tuple of np.arrays, and then convert to OrderBookRow
-    #     :returns: Tuple(List[bids_row], List[asks_row])
-    #     """
-    #     bids = [message.content["bids"]] if "bids" in message.content else []
-    #     asks = [message.content["asks"]] if "asks" in message.content else []
-    #     return bids, asks

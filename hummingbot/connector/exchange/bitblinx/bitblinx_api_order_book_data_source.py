@@ -11,10 +11,7 @@ from typing import (
     List,
     Optional
 )
-from decimal import Decimal
 import re
-import requests
-import cachetools.func
 import time
 import ujson
 import websockets
@@ -27,17 +24,12 @@ from hummingbot.core.data_type.order_book import OrderBook
 from hummingbot.logger import HummingbotLogger
 from hummingbot.connector.exchange.bitblinx.bitblinx_order_book import BitblinxOrderBook
 from hummingbot.connector.exchange.bitblinx.bitblinx_utils import convert_to_exchange_trading_pair_ws
-from hummingbot.core.data_type.order_book_tracker_entry import (
-    OrderBookTrackerEntry
-)
 TRADING_PAIR_FILTER = re.compile(r"(BTC|ETH|USDT)$")
 
 SNAPSHOT_REST_URL = "https://trade.bitblinx.com/api/book"
 BITBLINX_WEBSOCKET = "wss://trade.bitblinx.com/ws"
 BITBLINX_PRICE_CHANGE_URL = "https://trade.bitblinx.com/api/prices"
 BITBLINX_SYMBOLS_URL = "https://trade.bitblinx.com/api/symbols"
-BITBLINX_UPDATE_ORDER = "https://trade.bitblinx.com/api/orders/update-check?lastUpdateTime=1556028721&symbol=BTC-USD"
-#EXCHANGE_INFO_URL = "https://api.bitblinx.com/api/v1/exchangeInfo"
 
 
 class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
@@ -65,8 +57,9 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             "mts": content['result']['created'],
             "amount": content['result']['quantity'],
             "price": content['result']['price'],
-            }
-    def _prepare_snapshot(self, pair: str, raw_snapshot: dict, ) -> Dict[str, Any]:
+        }
+
+    def _prepare_snapshot(self, pair: str, raw_snapshot: dict) -> Dict[str, Any]:
         raw_snapshot = ujson.loads(raw_snapshot)
         """
         Return structure of three elements:
@@ -75,8 +68,8 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             asks: List of OrderBookRow for asks
         """
         update_id = time.time()
-        bids = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['buy'] ]
-        asks = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['sell'] ]
+        bids = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['buy']]
+        asks = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['sell']]
         if not bids or not asks:
             return False
         return {
@@ -100,10 +93,9 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             return
         finally:
             await ws.close()
-    
+
     @classmethod
     async def get_last_traded_prices(cls, trading_pairs: List[str]) -> Dict[str, float]:
-
         tasks = [cls.get_last_traded_price(t_pair) for t_pair in trading_pairs]
         results = await safe_gather(*tasks)
         return {t_pair: result for t_pair, result in zip(trading_pairs, results)}
@@ -124,12 +116,11 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         all_trading_pairs: List[Dict[str, Any]] = await response.json()
                         return [item["symbol"].replace('/', '-')
                                 for item in all_trading_pairs['result']
-                                if item["isActive"] == True]
+                                if item["isActive"] is True]
         except Exception:
             # Do nothing if the request fails -- there will be no autocomplete for bittrex trading pairs
             pass
         return []
-
 
     @staticmethod
     async def get_snapshot(client: aiohttp.ClientSession, trading_pair: str, limit: int = 1000) -> Dict[str, Any]:
@@ -139,20 +130,13 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 raise IOError(f"Error fetching bitblinx market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
             data: Dict[str, Any] = await response.json()
-            
             data['result']['bids'] = data['result'].pop('buy')
             data['result']['asks'] = data['result'].pop('sell')
-            
-            # Need to add the symbol into the snapshot message for the Kafka message queue.
-            # Because otherwise, there'd be no way for the receiver to know which market the
-            # snapshot belongs to.
-
             return data['result']
-
 
     async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         async with aiohttp.ClientSession() as client:
-            snapshot: Dict[str, Any] = await self.get_snapshot(client,trading_pair=trading_pair)
+            snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair=trading_pair)
             snapshot_timestamp: float = time.time()
             snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
                 snapshot,
@@ -161,80 +145,33 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             )
             order_book = self.order_book_create_function()
             order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.timestamp)
-            print(order_book)
             return order_book
-    
-    async def get_tracking_pairs(self) -> Dict[str, OrderBookTrackerEntry]:
-        result: Dict[str, OrderBookTrackerEntry] = {}
-
-        trading_pairs: List[str] = self._trading_pairs
-        number_of_pairs: int = len(trading_pairs)
-
-        async with aiohttp.ClientSession() as client:
-            for idx, trading_pair in enumerate(trading_pairs):
-                try:
-                    snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair)
-                    snapshot_timestamp: float = time.time()
-                    snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
-                        snapshot,
-                        snapshot_timestamp
-                    )
-
-                    order_book: OrderBook = self.order_book_create_function()
-                    active_order_tracker: BitfinexActiveOrderTracker = BitfinexActiveOrderTracker()
-                    order_book.apply_snapshot(
-                        snapshot_msg.bids,
-                        snapshot_msg.asks,
-                        snapshot_msg.update_id
-                    )
-
-                    result[trading_pair] = BitblinxOrderBookTrackerEntry(
-                        trading_pair, snapshot_timestamp, order_book, active_order_tracker
-                    )
-
-                    self.logger().info(
-                        f"Initialized order book for {trading_pair}. "
-                        f"{idx+1}/{number_of_pairs} completed."
-                    )
-                    await asyncio.sleep(self.STEP_TIME_SLEEP)
-                except IOError:
-                    self.logger().network(
-                        f"Error getting snapshot for {trading_pair}.",
-                        exc_info=True,
-                        app_warning_msg=f"Error getting snapshot for {trading_pair}. "
-                                        "Check network connection."
-                    )
-                except Exception:
-                    self.logger().error(
-                        f"Error initializing order book for {trading_pair}. ",
-                        exc_info=True
-                    )
-
-        return result
 
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
         while True:
             try:
                 trading_pairs: List[str] = self._trading_pairs
-
                 for trading_pair in trading_pairs:
                     async with websockets.connect(BITBLINX_WEBSOCKET) as ws:
+                        logging.getLogger('asyncio').setLevel(logging.ERROR)
+                        logging.getLogger('asyncio.coroutines').setLevel(logging.ERROR)
+                        logging.getLogger('websockets.server').setLevel(logging.ERROR)
+                        logging.getLogger('websockets.protocol').setLevel(logging.ERROR)
                         payload: Dict[str, Any] = {
                             "method": "subscribeTrades",
-                            "params":{
-                                "symbol": convert_to_exchange_trading_pair_ws( trading_pair),
+                            "params": {
+                                "symbol": convert_to_exchange_trading_pair_ws(trading_pair),
                                 "limit": 25,
                             },
                             "id": 1
                         }
                         await ws.send(ujson.dumps(payload))
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
-                        await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
-                        await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
+                        # await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
+                        # await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
 
                         async for raw_msg in self._get_response(ws):
                             msg = self._prepare_trade(raw_msg)
-                        
                             if msg:
                                 msg_book: OrderBookMessage = BitblinxOrderBook.trade_message_from_exchange(
                                     msg,
@@ -261,23 +198,23 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 trading_pairs: List[str] = self._trading_pairs
                 for trading_pair in trading_pairs:
                     async with websockets.connect(BITBLINX_WEBSOCKET) as ws:
+                        logging.getLogger('asyncio').setLevel(logging.ERROR)
+                        logging.getLogger('asyncio.coroutines').setLevel(logging.ERROR)
+                        logging.getLogger('websockets.server').setLevel(logging.ERROR)
+                        logging.getLogger('websockets.protocol').setLevel(logging.ERROR)
                         payload: Dict[str, Any] = {
-                             "method": "subscribeBook",
-                            "params":{
-                                "symbol": convert_to_exchange_trading_pair_ws( trading_pair),
+                            "method": "subscribeBook",
+                            "params": {
+                                "symbol": convert_to_exchange_trading_pair_ws(trading_pair),
                             },
-                            "id":1 
+                            "id": 1
                         }
                         await ws.send(ujson.dumps(payload))
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
-                     #   await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
-
                         async for raw_msg in self._get_response(ws):
                             if raw_msg:
-                                snapshot = self._prepare_snapshot(trading_pair,raw_msg)
-                            
-                                
+                                snapshot = self._prepare_snapshot(trading_pair, raw_msg)
                             if snapshot:
                                 snapshot_timestamp: float = time.time()
                                 snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
@@ -287,8 +224,6 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 output.put_nowait(snapshot_msg)
                             else:
                                 continue
-                    
-
             except Exception as err:
                 self.logger().error(err)
                 self.logger().network(

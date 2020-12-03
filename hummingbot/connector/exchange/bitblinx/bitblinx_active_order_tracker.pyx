@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # distutils: language=c++
-# distutils: sources=hummingbot/core/cpp/OrderBookEntry.cpp
+
 
 import logging
 import numpy as np
@@ -129,7 +129,6 @@ cdef class BitblinxActiveOrderTracker:
         # Refresh all order tracking.
         self._active_bids.clear()
         self._active_asks.clear()
-        
         for snapshot_orders, active_orders in [(message.content.get("bids", 0), self._active_bids),
                                                (message.content.get("asks", 0), self._active_asks)]:
             for order in snapshot_orders:
@@ -233,4 +232,3 @@ cdef class BitblinxActiveOrderTracker:
         bids_row = [OrderBookRow(price, qty, update_id) for ts, price, qty, update_id in np_bids]
         asks_row = [OrderBookRow(price, qty, update_id) for ts, price, qty, update_id in np_asks]
         return bids_row, asks_row
-

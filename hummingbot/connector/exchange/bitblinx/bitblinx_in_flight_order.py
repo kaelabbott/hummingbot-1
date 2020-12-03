@@ -37,15 +37,15 @@ class BitblinxInFlightOrder(InFlightOrderBase):
 
     @property
     def is_done(self) -> bool:
-        return self.last_state in {"FILLED", "CANCELED", "REJECTED", "EXPIRED"}
+        return self.last_state in {"FILLED", "CANCELED", "REJECTED", "EXPIRED", 'filled'}
 
     @property
     def is_failure(self) -> bool:
-        return self.last_state in {"REJECTED"}
+        return self.last_state in {"REJECTED", "404"}
 
     @property
     def is_cancelled(self) -> bool:
-        return self.last_state in {"cancelled", "EXPIRED"}
+        return self.last_state in {"cancelled", "EXPIRED", 'filled'}
 
     # @property
     # def order_type_description(self) -> str:
@@ -84,16 +84,16 @@ class BitblinxInFlightOrder(InFlightOrderBase):
         Updates the in flight order with trade update (from private/get-order-detail end point)
         return: True if the order gets updated otherwise False
         """
-        trade_id = trade_update["trade_id"]
+        trade_id = trade_update["tradeId"]
         # trade_update["orderId"] is type int
-        if str(trade_update["order_id"]) != self.exchange_order_id or trade_id in self.trade_id_set:
+        if trade_id in self.trade_id_set:
             # trade already recorded
             return False
         self.trade_id_set.add(trade_id)
-        self.executed_amount_base += Decimal(str(trade_update["traded_quantity"]))
+        self.executed_amount_base += abs(Decimal(str(trade_update["quantity"])))
         self.fee_paid += Decimal(str(trade_update["fee"]))
-        self.executed_amount_quote += (Decimal(str(trade_update["traded_price"])) *
-                                       Decimal(str(trade_update["traded_quantity"])))
+        self.executed_amount_quote += (Decimal(str(trade_update["price"])) *
+                                       abs(Decimal(str(trade_update["quantity"]))))
         if not self.fee_asset:
-            self.fee_asset = trade_update["fee_currency"]
+            self.fee_asset = trade_update["symbol"].split('/')[0]
         return True
