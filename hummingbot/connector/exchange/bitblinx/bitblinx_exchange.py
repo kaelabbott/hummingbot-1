@@ -559,9 +559,15 @@ class BitblinxExchange(ExchangeBase):
             )
             if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
-                if wait_for_status:
-                    from hummingbot.core.utils.async_utils import wait_til
-                    await wait_til(lambda: tracked_order.is_cancelled)
+                self.logger().info(f"Successfully cancelled order {order_id}.")
+                self.stop_tracking_order(order_id)
+                self.trigger_event(
+                    MarketEvent.OrderCancelled,
+                    OrderCancelledEvent(
+                        self.current_timestamp,
+                        tracked_order.client_order_id
+                    )
+                )
                 return order_id
         except asyncio.CancelledError:
             raise
@@ -646,8 +652,6 @@ class BitblinxExchange(ExchangeBase):
         Updates in-flight order and triggers cancellation or failure event if needed.
         :param order_msg: The order response from either REST or web socket API (they are of the same format)
         """
-        print('PROCESSED ORDER')
-        print(order_msg)
         tracked_order = None
         tracked_orders = list(self._in_flight_orders.values())
         client_order_id = order_msg.get('orderID')
@@ -664,7 +668,6 @@ class BitblinxExchange(ExchangeBase):
         else:
             tracked_order.last_state = order_msg.get('status')
         if tracked_order.is_cancelled:
-            self.stop_tracking_order(client_order_id)
             self.logger().info(f"Successfully cancelled order {client_order_id}.")
             self.trigger_event(MarketEvent.OrderCancelled,
                                OrderCancelledEvent(
@@ -812,14 +815,12 @@ class BitblinxExchange(ExchangeBase):
         Listens to message in _user_stream_tracker.user_stream queue. The messages are put in by
         CryptoComAPIUserStreamDataSource.
         """
-
         async for event_message in self._iter_user_event_queue():
             try:
                 channel = event_message["method"]
                 if "newUserTrade" in channel:
                     await self._process_trade_message(event_message['result'])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
-
                 elif "orderUpdate" in channel:
                     await self._process_order_message(event_message["result"])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
