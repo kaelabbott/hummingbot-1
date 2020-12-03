@@ -475,6 +475,8 @@ class BitblinxExchange(ExchangeBase):
                                   )
         try:
             order_result = await self._api_request("post", "orders", api_params, True)
+            print('resultado')
+            print(order_result)
             exchange_order_id = str(order_result["result"]["orderID"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -657,8 +659,6 @@ class BitblinxExchange(ExchangeBase):
         if not tracked_order:
             return
         # Update order execution status
-        print('TRACKED ORDER')
-        print(tracked_order)
         if type(order_msg.get('status')) == bool:
             tracked_order.last_state = order_msg['result']["status"]
         else:
@@ -822,6 +822,7 @@ class BitblinxExchange(ExchangeBase):
 
                 elif "orderUpdate" in channel:
                     await self._process_order_message(event_message["result"])
+                    await self._ws_message_listener_balance(event_message['result']['symbol'])
                 pass
             except asyncio.CancelledError:
                 raise
