@@ -51,6 +51,8 @@ class BitblinxWebsocket():
                 try:
                     raw_msg_str: str = await asyncio.wait_for(self._client.recv(), timeout=self.MESSAGE_TIMEOUT)
                     raw_msg = ujson.loads(raw_msg_str)
+                    print('RAW MESSAGE')
+                    print(raw_msg)
                     if raw_msg['method'] == 'authorize':
                         raw_msg_order: str = await asyncio.wait_for(self._client.recv(), timeout=self.MESSAGE_TIMEOUT)
                         continue
@@ -59,6 +61,7 @@ class BitblinxWebsocket():
                         raw_msg_order = ujson.loads(raw_msg_order)
                         raw_msg['result']['orderUpdate'] = raw_msg_order.get('result')
                         yield raw_msg
+                    yield raw_msg
                 except asyncio.TimeoutError:
                     await asyncio.wait_for(self._client.ping(), timeout=self.PING_TIMEOUT)
         except asyncio.TimeoutError:

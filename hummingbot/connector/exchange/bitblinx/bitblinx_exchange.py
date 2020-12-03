@@ -644,6 +644,8 @@ class BitblinxExchange(ExchangeBase):
         Updates in-flight order and triggers cancellation or failure event if needed.
         :param order_msg: The order response from either REST or web socket API (they are of the same format)
         """
+        print('PROCESSED ORDER')
+        print(order_msg)
         tracked_order = None
         tracked_orders = list(self._in_flight_orders.values())
         client_order_id = order_msg.get('orderID')
@@ -655,6 +657,8 @@ class BitblinxExchange(ExchangeBase):
         if not tracked_order:
             return
         # Update order execution status
+        print('TRACKED ORDER')
+        print(tracked_order)
         if type(order_msg.get('status')) == bool:
             tracked_order.last_state = order_msg['result']["status"]
         else:
