@@ -573,9 +573,9 @@ class BitblinxExchange(ExchangeBase):
             raise
         except Exception as e:
             self.logger().network(
-                f"Failed to cancel order {order_id}: {str(e)}",
+                f"Failed to cancel order {result}: {str(e)}",
                 exc_info=True,
-                app_warning_msg=f"Failed to cancel the order {order_id} on CryptoCom. "
+                app_warning_msg=f"Failed to cancel the order {order_id} on bitblinx. "
                                 f"Check API key and network connection."
             )
 
@@ -610,6 +610,9 @@ class BitblinxExchange(ExchangeBase):
         local_asset_names = set(self._account_balances.keys())
         remote_asset_names = set()
         account_info = await self._api_request("get", "user/balances", {}, True)
+        if account_info.get('result') is None:
+            self._ws_message_listener_balance('BTC/USDT')  # This parameter doesn't affect the outcome. Bitblinx still returns every balance you have.
+            return True
         for currency in account_info['result']['available']:
             asset_name = currency
             if account_info['result']['summary'].get(asset_name) is not None:
@@ -633,6 +636,8 @@ class BitblinxExchange(ExchangeBase):
             for tracked_order in tracked_orders:
                 order_id = await tracked_order.get_exchange_order_id()
                 client_oid = tracked_order.client_order_id
+                if tracked_order.last_state == 'new':  # To avoid bitblinx API error limit.
+                    break
                 tasks.append(self._api_request("get",
                                                f"orders/{order_id}",
                                                is_auth_required=True))
@@ -642,7 +647,7 @@ class BitblinxExchange(ExchangeBase):
                 if isinstance(update_result, Exception):
                     raise update_result
                 if update_result['status'] is False:
-                    self.logger().info(f"_update_order_status result not in resp: {update_result}")
+                    self.logger().info(f"_update_order_status result not in resp: {tasks}")
                     self.stop_tracking_order(client_oid)
                 else:
                     await safe_gather(self._process_order_message(update_result))

@@ -110,6 +110,7 @@ class BitblinxOrderBookTracker(OrderBookTracker):
         while True:
             try:
                 message: OrderBookMessage = await message_queue.get()
+                print(message)
                 if message.type is OrderBookMessageType.DIFF:
                     # Huobi websocket messages contain the entire order book state so they should be treated as snapshots
                     order_book.apply_snapshot(message.bids, message.asks, message.update_id)
