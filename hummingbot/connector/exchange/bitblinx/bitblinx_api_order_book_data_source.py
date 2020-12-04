@@ -184,7 +184,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self.logger().network(
                     "Unexpected error with WebSocket connection.",
                     exc_info=True,
-                    app_warning_msg="Unexpected error with WebSocket connection. "
+                    app_warning_msg="Unexpected error with WebSocket connection. LISTEN TRADES "
                                     f"Retrying in {int(self.MESSAGE_TIMEOUT)} seconds. "
                                     "Check network connection."
                 )
@@ -229,7 +229,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 self.logger().network(
                     "Unexpected error with WebSocket connection.",
                     exc_info=True,
-                    app_warning_msg="Unexpected error with WebSocket connection. "
+                    app_warning_msg="Unexpected error with WebSocket connection.ORDER DIFF "
                                     f"Retrying in {int(self.MESSAGE_TIMEOUT)} seconds. "
                                     "Check network connection."
                 )

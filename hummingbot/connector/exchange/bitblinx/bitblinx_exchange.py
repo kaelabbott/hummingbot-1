@@ -456,12 +456,15 @@ class BitblinxExchange(ExchangeBase):
         trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair)]
         amount = self.quantize_order_amount(trading_pair, amount)
         price = self.quantize_order_price(trading_pair, price)
+        order_type_ex = 'limit'
         if amount < trading_rule.min_order_size:
             raise ValueError(f"Buy order amount {amount} is lower than the minimum order size "
                              f"{trading_rule.min_order_size}.")
+        if order_type is OrderType.LIMIT_MAKER:
+            order_type_ex = 'limit'
         api_params = {"symbol": bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair),
                       "side": trade_type.name.lower(),
-                      "type": "limit",
+                      "type": order_type_ex,
                       "price": f"{price:f}",
                       "quantity": f"{amount:f}",
                       }
@@ -560,7 +563,6 @@ class BitblinxExchange(ExchangeBase):
             if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
                 self.logger().info(f"Successfully cancelled order {order_id}.")
-                self.stop_tracking_order(order_id)
                 self.trigger_event(
                     MarketEvent.OrderCancelled,
                     OrderCancelledEvent(
@@ -568,12 +570,15 @@ class BitblinxExchange(ExchangeBase):
                         tracked_order.client_order_id
                     )
                 )
+                tracked_order.cancelled_event.set()
+                self.stop_tracking_order(order_id)
                 return order_id
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            self.stop_tracking_order(order_id)
             self.logger().network(
-                f"Failed to cancel order {result}: {str(e)}",
+                f"Failed to cancel order {order_id}: {str(e)}",
                 exc_info=True,
                 app_warning_msg=f"Failed to cancel the order {order_id} on bitblinx. "
                                 f"Check API key and network connection."
@@ -827,6 +832,7 @@ class BitblinxExchange(ExchangeBase):
                     await self._process_trade_message(event_message['result'])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 elif "orderUpdate" in channel:
+                    print('here----------')
                     await self._process_order_message(event_message["result"])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 pass

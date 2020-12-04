@@ -110,7 +110,12 @@ class BitblinxOrderBookTracker(OrderBookTracker):
         while True:
             try:
                 message: OrderBookMessage = await message_queue.get()
-                print(message)
+                for m in message.content['bids']:
+                    if type(m) != dict:
+                        self._convert_snapshot_message_to_order_book_row(message)
+                        break
+                    else:
+                        break
                 if message.type is OrderBookMessageType.DIFF:
                     # Huobi websocket messages contain the entire order book state so they should be treated as snapshots
                     order_book.apply_snapshot(message.bids, message.asks, message.update_id)
@@ -130,17 +135,16 @@ class BitblinxOrderBookTracker(OrderBookTracker):
                 raise
             except Exception:
                 self.logger().network(
-                    f"Unexpected error tracking order book for {trading_pair}.",
+                    f"Unexpected error tracking order book for {trading_pair}. {message}",
                     exc_info=True,
-                    app_warning_msg="Unexpected error tracking order book. Retrying after 5 seconds."
+                    app_warning_msg=f"{message} Unexpected error tracking order book. Retrying after 5 seconds. "
                 )
                 await asyncio.sleep(5.0)
 
-    def _convert_diff_message_to_order_book_row(self, message):
+    def _convert_snapshot_message_to_order_book_row(self, message):
         """
         Convert an incoming diff message to Tuple of np.arrays, and then convert to OrderBookRow
         :returns: Tuple(List[bids_row], List[asks_row])
         """
-        bids = [message.content["bids"]] if "bids" in message.content else []
-        asks = [message.content["asks"]] if "asks" in message.content else []
-        return bids, asks
+        message.content['bids'] = [{'price': item.price, 'quantity': item.amount} for item in message.content['bids']]
+        message.content['asks'] = [{'price': item.price, 'quantity': item.amount} for item in message.content['asks']]
