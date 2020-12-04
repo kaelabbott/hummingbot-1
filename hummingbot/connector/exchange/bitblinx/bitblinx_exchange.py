@@ -226,7 +226,6 @@ class BitblinxExchange(ExchangeBase):
                 "method": "balances",
                 "params": {
                     "includeSummary": False,
-                    'currency': base_asset
                 },
                 "id": 1
             }
@@ -478,8 +477,6 @@ class BitblinxExchange(ExchangeBase):
                                   )
         try:
             order_result = await self._api_request("post", "orders", api_params, True)
-            print('resultado')
-            print(order_result)
             exchange_order_id = str(order_result["result"]["orderID"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -622,7 +619,7 @@ class BitblinxExchange(ExchangeBase):
             asset_name = currency
             if account_info['result']['summary'].get(asset_name) is not None:
                 self._account_available_balances[asset_name] = Decimal(str(account_info['result']['available'][asset_name]))
-            self._account_balances[asset_name] = Decimal(str(account_info['result']['available'][asset_name]))
+            self._account_balances[asset_name] = Decimal(str(account_info['result']['total'][asset_name]))
             remote_asset_names.add(asset_name)
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)
         for asset_name in asset_names_to_remove:
@@ -832,7 +829,6 @@ class BitblinxExchange(ExchangeBase):
                     await self._process_trade_message(event_message['result'])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 elif "orderUpdate" in channel:
-                    print('here----------')
                     await self._process_order_message(event_message["result"])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 pass
