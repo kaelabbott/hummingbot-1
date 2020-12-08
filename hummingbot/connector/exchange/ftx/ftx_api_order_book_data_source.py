@@ -121,22 +121,17 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     await ws.subscribe({'channel': 'trades', 'market': convert_to_exchange_trading_pair_ws(trading_pair)})
                     async for response in ws.on_message_public():
                         if response.get("data") is None:
-                            print('HERE')
-                            print(response)
                             continue
 
                         for trade in response["data"]:
-                            print(trade)
                             trade['market'] = trading_pair
                             trade: Dict[Any] = trade
                             trade_timestamp = timestamp_to_int(trade["time"])
-                            print(trade_timestamp)
                             trade_msg: OrderBookMessage = FtxOrderBook.trade_message_from_exchange(
                                 trade,
                                 float(trade_timestamp),
                                 metadata={"trading_pair": trading_pair}
                             )
-                            print(trade_msg)
                             output.put_nowait(trade_msg)
             except Exception as err:
                 self.logger().error(err)
