@@ -20,6 +20,9 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.connector.exchange.ftx.ftx_order_book import FtxOrderBook
 from hummingbot.connector.exchange.ftx.ftx_websocket import FtxWebsocket
 from hummingbot.connector.exchange.ftx.ftx_utils import convert_to_exchange_trading_pair_ws, timestamp_to_int
+import cachetools.func
+from decimal import Decimal
+import requests
 
 TRADING_PAIR_FILTER = re.compile(r"(BTC|ETH|USDT)$")
 FTX_WEBSOCKET = "wss://ftx.com/ws/"
@@ -55,6 +58,14 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             resp = await client.get(f"{FTX_MARKET}/{convert_to_exchange_trading_pair_ws(trading_pair)}")
             resp_json = await resp.json()
             return float(resp_json['result']['last'])
+
+    @staticmethod
+    @cachetools.func.ttl_cache(ttl=10)
+    def get_mid_price(trading_pair: str) -> Optional[Decimal]:
+        resp = requests.get(f"{FTX_MARKET}/{convert_to_exchange_trading_pair_ws(trading_pair)}")
+        record = resp.json()
+        result = (Decimal(record.get('bid') + Decimal(record.get("ask"))) / Decimal("2"))
+        return result if result else None
 
     @staticmethod
     async def fetch_trading_pairs() -> List[str]:
@@ -102,21 +113,30 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     continue
                 for trading_pair in trading_pairs:
                     ws = FtxWebsocket()
+                    logging.getLogger('asyncio').setLevel(logging.ERROR)
+                    logging.getLogger('asyncio.coroutines').setLevel(logging.ERROR)
+                    logging.getLogger('websockets.server').setLevel(logging.ERROR)
+                    logging.getLogger('websockets.protocol').setLevel(logging.ERROR)
                     await ws.connect()
                     await ws.subscribe({'channel': 'trades', 'market': convert_to_exchange_trading_pair_ws(trading_pair)})
-                    async for response in ws.on_message():
+                    async for response in ws.on_message_public():
                         if response.get("data") is None:
+                            print('HERE')
+                            print(response)
                             continue
 
                         for trade in response["data"]:
-                            trade['market'] = convert_to_exchange_trading_pair_ws(trading_pair)
+                            print(trade)
+                            trade['market'] = trading_pair
                             trade: Dict[Any] = trade
                             trade_timestamp = timestamp_to_int(trade["time"])
+                            print(trade_timestamp)
                             trade_msg: OrderBookMessage = FtxOrderBook.trade_message_from_exchange(
                                 trade,
-                                int(trade_timestamp),
-                                metadata={"trading_pair": convert_to_exchange_trading_pair_ws(trading_pair)}
+                                float(trade_timestamp),
+                                metadata={"trading_pair": trading_pair}
                             )
+                            print(trade_msg)
                             output.put_nowait(trade_msg)
             except Exception as err:
                 self.logger().error(err)
@@ -140,6 +160,10 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     continue
                 for trading_pair in trading_pairs:
                     ws = FtxWebsocket()
+                    logging.getLogger('asyncio').setLevel(logging.ERROR)
+                    logging.getLogger('asyncio.coroutines').setLevel(logging.ERROR)
+                    logging.getLogger('websockets.server').setLevel(logging.ERROR)
+                    logging.getLogger('websockets.protocol').setLevel(logging.ERROR)
                     await ws.connect()
                     await ws.subscribe({'channel': 'orderbook', 'market': convert_to_exchange_trading_pair_ws(trading_pair)})
                     async for response in ws.on_message():

@@ -61,6 +61,23 @@ class FtxWebsocket():
         finally:
             await self.disconnect()
 
+    async def _messages_public(self) -> AsyncIterable[Any]:
+        try:
+            while True:
+                try:
+                    raw_msg_str: str = await asyncio.wait_for(self._client.recv(), timeout=self.MESSAGE_TIMEOUT)
+                    raw_msg = ujson.loads(raw_msg_str)
+                    yield raw_msg
+                except asyncio.TimeoutError:
+                    await asyncio.wait_for(self._client.ping(), timeout=self.PING_TIMEOUT)
+        except asyncio.TimeoutError:
+            self.logger().warning("WebSocket ping timed out. Going to reconnect...")
+            return
+        except ConnectionClosed:
+            return
+        finally:
+            await self.disconnect()
+
     # emit messages
     async def _emit(self, data: Optional[Any] = {}) -> None:
         await self._client.send(ujson.dumps(data))
@@ -83,6 +100,10 @@ class FtxWebsocket():
 
     # listen to messages by method
     async def on_message(self) -> AsyncIterable[Any]:
+        async for msg in self._messages():
+            yield msg
+
+    async def on_message_public(self) -> AsyncIterable[Any]:
         async for msg in self._messages():
             yield msg
 
