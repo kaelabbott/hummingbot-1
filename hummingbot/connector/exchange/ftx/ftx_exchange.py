@@ -406,7 +406,7 @@ class FtxExchange(ExchangeBase):
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type.name} {trade_type.name} order {order_id} for "
                                    f"{amount} {trading_pair}.")
-                tracked_order.exchange_order_id = exchange_order_id
+                tracked_order.update_exchange_order_id(exchange_order_id)
             event_tag = MarketEvent.BuyOrderCreated if trade_type is TradeType.BUY else MarketEvent.SellOrderCreated
             event_class = BuyOrderCreatedEvent if trade_type is TradeType.BUY else SellOrderCreatedEvent
             self.trigger_event(event_tag,
@@ -602,6 +602,7 @@ class FtxExchange(ExchangeBase):
         updated = tracked_order.update_with_trade_update(trade_msg)
         if not updated:
             return
+        self.logger().info(f"CHECK BEFORE FILLED {updated}.")
         self.trigger_event(
             MarketEvent.OrderFilled,
             OrderFilledEvent(
@@ -616,6 +617,7 @@ class FtxExchange(ExchangeBase):
                 exchange_trade_id=trade_msg["tradeId"]
             )
         )
+        self.logger().info(f"CHECK AFTER FILLED {updated}.")
         if(math.isclose(tracked_order.executed_amount_base, tracked_order.amount) or
                 tracked_order.executed_amount_base >= tracked_order.amount):
             tracked_order.last_state = "FILLED"
