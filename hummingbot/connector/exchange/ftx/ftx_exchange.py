@@ -557,8 +557,6 @@ class FtxExchange(ExchangeBase):
                 if isinstance(update_result, Exception):
                     raise update_result
                 if update_result:
-                    print("#################### DEBUG LEL")
-                    print(update_result)
                     await safe_gather(self._process_order_message(update_result))
 
     async def _process_order_message(self, order_msg: Dict[str, Any]):
