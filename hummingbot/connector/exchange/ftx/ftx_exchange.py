@@ -554,8 +554,6 @@ class FtxExchange(ExchangeBase):
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = tasks
             for update_result in update_results:
-                print('update result')
-                print(update_result)
                 if isinstance(update_result, Exception):
                     raise update_result
                 if update_result:
