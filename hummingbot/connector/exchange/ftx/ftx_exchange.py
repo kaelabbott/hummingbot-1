@@ -77,7 +77,7 @@ class FtxExchange(ExchangeBase):
         """
         super().__init__()
         self._trading_required = trading_required
-        self._ftx_auth = FtxAuth(ftx_api_key, ftx_secret_key)
+        self._ftx_auth = FtxAuth(ftx_api_key, ftx_secret_key, ftx_subaccount_name)
         self._order_book_tracker = FtxOrderBookTracker(trading_pairs=trading_pairs)
         self._user_stream_tracker = FtxUserStreamTracker(self._ftx_auth, trading_pairs)
         self._ev_loop = asyncio.get_event_loop()
@@ -183,7 +183,12 @@ class FtxExchange(ExchangeBase):
         """
         super().stop(clock)
 
-    def _start_network(self):
+    async def start_network(self):
+        """
+        This function is required by NetworkIterator base class and is called automatically.
+        It starts tracking order book, polling trading rules,
+        updating statuses and tracking user data.
+        """
         self._order_book_tracker.start()
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
@@ -191,13 +196,6 @@ class FtxExchange(ExchangeBase):
             self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
             self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
 
-    async def start_network(self):
-        self._start_network()
-        """
-        This function is required by NetworkIterator base class and is called automatically.
-        It starts tracking order book, polling trading rules,
-        updating statuses and tracking user data.
-        """
     def _stop_network(self):
         self._order_book_tracker.stop()
         if self._status_polling_task is not None:
@@ -400,13 +398,15 @@ class FtxExchange(ExchangeBase):
                                   order_type
                                   )
         try:
+            if order_type is OrderType.LIMIT_MAKER:
+                api_params["postOnly"] = True
             order_result = self._api_rest_client._post('orders', api_params)
             exchange_order_id = str(order_result["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:
                 self.logger().info(f"Created {order_type.name} {trade_type.name} order {order_id} for "
                                    f"{amount} {trading_pair}.")
-                tracked_order.update_exchange_order_id(exchange_order_id)
+                tracked_order.exchange_order_id = exchange_order_id
             event_tag = MarketEvent.BuyOrderCreated if trade_type is TradeType.BUY else MarketEvent.SellOrderCreated
             event_class = BuyOrderCreatedEvent if trade_type is TradeType.BUY else SellOrderCreatedEvent
             self.trigger_event(event_tag,
@@ -554,6 +554,8 @@ class FtxExchange(ExchangeBase):
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = tasks
             for update_result in update_results:
+                print('update result')
+                print(update_result)
                 if isinstance(update_result, Exception):
                     raise update_result
                 if update_result:

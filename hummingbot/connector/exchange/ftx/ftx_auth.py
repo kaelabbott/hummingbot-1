@@ -4,9 +4,10 @@ import time
 
 
 class FtxAuth():
-    def __init__(self, api_key: str, secret_key: str):
+    def __init__(self, api_key: str, secret_key: str, subaccount_name: str = None):
         self.api_key = api_key
         self.secret_key = secret_key
+        self.subaccount_name = subaccount_name
         self.last_nonce = 0
 
     def _sign_payload(self, payload) -> str:
@@ -38,5 +39,6 @@ class FtxAuth():
                 self.secret_key.encode(), f'{ts}websocket_login'.encode(), 'sha256').hexdigest(),
             'time': ts,
         }}
-
+        if self.subaccount_name is not None:
+            payload['args']['subaccount'] = self.subaccount_name
         return payload
