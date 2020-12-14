@@ -67,6 +67,9 @@ class FtxWebsocket():
                 try:
                     raw_msg_str: str = await asyncio.wait_for(self._client.recv(), timeout=self.MESSAGE_TIMEOUT)
                     raw_msg = ujson.loads(raw_msg_str)
+                    message_type = raw_msg['type']
+                    if message_type == 'partial':
+                        continue
                     yield raw_msg
                 except asyncio.TimeoutError:
                     await asyncio.wait_for(self._client.ping(), timeout=self.PING_TIMEOUT)
@@ -104,7 +107,7 @@ class FtxWebsocket():
             yield msg
 
     async def on_message_public(self) -> AsyncIterable[Any]:
-        async for msg in self._messages():
+        async for msg in self._messages_public():
             yield msg
 
     async def authenticate(self):

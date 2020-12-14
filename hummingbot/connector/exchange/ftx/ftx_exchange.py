@@ -97,6 +97,7 @@ class FtxExchange(ExchangeBase):
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
+            safe_ensure_future(self._order_tracker_polling_loop())
             self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
             self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
 
@@ -517,6 +518,25 @@ class FtxExchange(ExchangeBase):
                                                       "Check API key and network connection.")
                 await asyncio.sleep(0.5)
 
+    async def _order_tracker_polling_loop(self):
+        """
+        Periodically update user balances and order status via REST API. This serves as a fallback measure for web
+        socket API updates.
+        """
+        while True:
+            try:
+                self._order_book_tracker.start()
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self.logger().error(str(e), exc_info=True)
+                self.logger().network("Unexpected error while fetching account updates.",
+                                      exc_info=True,
+                                      app_warning_msg="Could not fetch account updates from FTX. "
+                                                      "Check API key and network connection.")
+                await asyncio.sleep(60)
+
     async def _update_balances(self):
         """
         Calls REST API to update total and available balances.
@@ -602,7 +622,6 @@ class FtxExchange(ExchangeBase):
         updated = tracked_order.update_with_trade_update(trade_msg)
         if not updated:
             return
-        self.logger().info(f"CHECK BEFORE FILLED {updated}.")
         self.trigger_event(
             MarketEvent.OrderFilled,
             OrderFilledEvent(
@@ -617,7 +636,6 @@ class FtxExchange(ExchangeBase):
                 exchange_trade_id=trade_msg["tradeId"]
             )
         )
-        self.logger().info(f"CHECK AFTER FILLED {updated}.")
         if(math.isclose(tracked_order.executed_amount_base, tracked_order.amount) or
                 tracked_order.executed_amount_base >= tracked_order.amount):
             tracked_order.last_state = "FILLED"

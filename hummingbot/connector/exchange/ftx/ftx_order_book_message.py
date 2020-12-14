@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 from typing import (
     Dict,
+    List,
     Optional,
 )
+
+from hummingbot.core.data_type.order_book_row import OrderBookRow
 import pandas as pd
 from hummingbot.core.data_type.order_book_message import (
     OrderBookMessage,
@@ -46,6 +49,20 @@ class FtxOrderBookMessage(OrderBookMessage):
             return self.content["trading_pair"]
         elif "name" in self.content:
             return self.content["name"]
+
+    @property
+    def asks(self) -> List[OrderBookRow]:
+        asks = self.content["asks"]
+        return [
+            OrderBookRow(float(ask[0]), float(ask[1]), self.update_id) for ask in asks
+        ]
+
+    @property
+    def bids(self) -> List[OrderBookRow]:
+        bids = self.content['bids']
+        return [
+            OrderBookRow(float(bid[0]), float(bid[1]), self.update_id) for bid in bids
+        ]
 
     def __eq__(self, other) -> bool:
         return self.type == other.type and self.timestamp == other.timestamp

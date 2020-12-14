@@ -20,6 +20,7 @@ from hummingbot.logger import HummingbotLogger
 from hummingbot.connector.exchange.ftx.ftx_order_book import FtxOrderBook
 from hummingbot.connector.exchange.ftx.ftx_websocket import FtxWebsocket
 from hummingbot.connector.exchange.ftx.ftx_utils import convert_to_exchange_trading_pair_ws, timestamp_to_int
+from hummingbot.connector.exchange.ftx.ftx_active_order_tracker import FtxActiveOrderTracker
 import cachetools.func
 from decimal import Decimal
 import requests
@@ -100,8 +101,10 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 snapshot_timestamp,
                 metadata={"trading_pair": trading_pair}
             )
+            active_order_tracker: FtxActiveOrderTracker = FtxActiveOrderTracker()
+            bids, asks = active_order_tracker.convert_snapshot_message_to_order_book_row(snapshot_msg)
             order_book = self.order_book_create_function()
-            order_book.apply_snapshot(snapshot_msg.bids, snapshot_msg.asks, snapshot_msg.timestamp)
+            order_book.apply_snapshot(bids, asks, snapshot_msg.update_id)
             return order_book
 
     async def listen_for_trades(self, ev_loop: asyncio.BaseEventLoop, output: asyncio.Queue):
@@ -161,8 +164,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     logging.getLogger('websockets.protocol').setLevel(logging.ERROR)
                     await ws.connect()
                     await ws.subscribe({'channel': 'orderbook', 'market': convert_to_exchange_trading_pair_ws(trading_pair)})
-                    async for response in ws.on_message():
-
+                    async for response in ws.on_message_public():
                         if response.get("data") is None:
                             continue
                         snapshot = response.get("data")
@@ -171,7 +173,6 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                             snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(
                                 snapshot,
                                 snapshot_timestamp,
-                                metadata={"trading_pair": response['market']}
                             )
                             output.put_nowait(snapshot_msg)
                         else:
@@ -196,7 +197,6 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         continue
                     for trading_pair in self._trading_pairs:
                         try:
-                            trading_pair = convert_to_exchange_trading_pair_ws(trading_pair)
                             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair)
                             snapshot_timestamp: float = time.time()
                             snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import logging
+
 from sqlalchemy.engine import RowProxy
 from typing import (
     Optional,
@@ -12,12 +13,11 @@ from hummingbot.core.data_type.order_book_message import (
     OrderBookMessage, OrderBookMessageType
 )
 from hummingbot.connector.exchange.ftx.ftx_order_book_message import FtxOrderBookMessage
-from hummingbot.core.event.events import TradeType
+
 _logger = None
 
-EXCHANGE_NAME = 'ftx'
 
-cdef class FtxOrderBook(OrderBook):
+class FtxOrderBook(OrderBook):
     @classmethod
     def logger(cls) -> HummingbotLogger:
         global _logger
@@ -108,11 +108,9 @@ cdef class FtxOrderBook(OrderBook):
 
         if metadata:
             msg.update(metadata)
-        trade_type = TradeType.SELL if msg["side"] == 'sell' else TradeType.BUY
         msg.update({
-            "trading_pair": msg["market"],
-            "trade_id": msg.get("id"),
-            "trade_type": float(trade_type.value),
+            "exchange_order_id": msg.get("id"),
+            "trade_type": msg.get("side"),
             "price": msg.get("price"),
             "amount": msg.get("size"),
         })
@@ -139,8 +137,8 @@ cdef class FtxOrderBook(OrderBook):
 
     @classmethod
     def from_snapshot(cls, snapshot: OrderBookMessage):
-        raise NotImplementedError(EXCHANGE_NAME + " order book needs to retain individual order data.")
+        raise NotImplementedError('ftx' + " order book needs to retain individual order data.")
 
     @classmethod
     def restore_from_snapshot_and_diffs(self, snapshot: OrderBookMessage, diffs: List[OrderBookMessage]):
-        raise NotImplementedError(EXCHANGE_NAME + " order book needs to retain individual order data.")
+        raise NotImplementedError('ftx' + " order book needs to retain individual order data.")

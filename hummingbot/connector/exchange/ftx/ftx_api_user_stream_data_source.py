@@ -43,16 +43,12 @@ class FtxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             ws = FtxWebsocket(self._ftx_auth)
             await ws.connect()
             await ws.authenticate()
-            await ws.unsubscribe({'channel': 'fills'})
-            await ws.unsubscribe({'channel': 'orders'})
             await ws.subscribe({'channel': 'fills'})
             await ws.subscribe({'channel': 'orders'})
             async for msg in ws.on_message():
                 yield msg
                 self._last_recv_time = time.time()
                 if (msg.get("data") is None):
-                    print('mensage')
-                    print(msg)
                     continue
         except Exception as e:
             raise e
