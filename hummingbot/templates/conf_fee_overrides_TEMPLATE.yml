@@ -17,6 +17,9 @@ coinbase_pro_taker_fee:
 ftx_maker_fee:
 ftx_taker_fee:
 
+ftx_perpetual_maker_fee:
+ftx_perpetual_taker_fee:
+
 huobi_maker_fee:
 huobi_taker_fee:
 

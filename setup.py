@@ -43,7 +43,7 @@ def main():
         "hummingbot.connector.exchange.bittrex",
         "hummingbot.connector.exchange.bamboo_relay",
         "hummingbot.connector.exchange.coinbase_pro",
-        "hummingbot.connector.exchange.ftx"
+        "hummingbot.connector.exchange.ftx",
         "hummingbot.connector.exchange.huobi",
         "hummingbot.connector.exchange.radar_relay",
         "hummingbot.connector.exchange.kraken",
@@ -53,6 +53,7 @@ def main():
         "hummingbot.connector.exchange.okex",
         "hummingbot.connector.derivative",
         "hummingbot.connector.derivative.binance_perpetual",
+        "hummingbot.connector.derivative.ftx_perpetual",
         "hummingbot.script",
         "hummingbot.strategy",
         "hummingbot.strategy.amm_arb",

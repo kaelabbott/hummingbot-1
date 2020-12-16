@@ -32,6 +32,10 @@ ftx_api_key: null
 ftx_secret_key: null
 ftx_subaccount_name: main
 
+ftx_perpetual_api_key: null
+ftx_perpetual_secret_key: null
+ftx_perpetual_subaccount_name: main
+
 huobi_api_key: null
 huobi_secret_key: null
 
