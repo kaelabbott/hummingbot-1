@@ -477,6 +477,8 @@ class FtxExchange(ExchangeBase):
             if tracked_order.exchange_order_id is None:
                 await tracked_order.get_exchange_order_id()
             ex_order_id = tracked_order.exchange_order_id
+            if ex_order_id is None:
+                ex_order_id = await tracked_order.get_exchange_order_id()
             result = self._api_rest_client._delete(f'orders/{ex_order_id}')
             if result:
                 tracked_order.last_state = 'cancelled'

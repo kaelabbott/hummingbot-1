@@ -170,7 +170,7 @@ class FtxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         snapshot = response.get("data")
                         if snapshot:
                             snapshot_timestamp: float = time.time()
-                            snapshot_msg: OrderBookMessage = FtxOrderBook.snapshot_message_from_exchange(
+                            snapshot_msg: OrderBookMessage = FtxOrderBook.diff_message_from_exchange(
                                 snapshot,
                                 snapshot_timestamp,
                             )
