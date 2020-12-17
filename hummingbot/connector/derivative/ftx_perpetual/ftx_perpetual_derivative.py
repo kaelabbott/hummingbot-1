@@ -425,7 +425,6 @@ class FtxPerpetualDerivative(DerivativeBase):
             if order_type is OrderType.LIMIT_MAKER:
                 api_params["postOnly"] = True
             order_result = self._api_rest_client._post('orders', api_params)
-            print(order_result)
             exchange_order_id = str(order_result["id"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None:

@@ -63,7 +63,8 @@ class FtxPerpetualAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         all_trading_pairs: List[Dict[str, Any]] = await response.json()
                         return [item["name"].replace('PERP', 'USD')
                                 for item in all_trading_pairs['result']
-                                if item["enabled"] is True and item['type'] == 'future']
+                                if item["enabled"] is True and item['type'] == 'future'
+                                and item['name'].split('-')[-1] == 'PERP']
         except Exception:
             pass
         return []
@@ -179,6 +180,7 @@ class FtxPerpetualAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         continue
                     for trading_pair in self._trading_pairs:
                         try:
+                            print(trading_pair)
                             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair)
                             snapshot_timestamp: float = time.time()
                             snapshot_msg: OrderBookMessage = FtxPerpetualOrderBook.snapshot_message_from_exchange(

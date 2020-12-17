@@ -34,7 +34,7 @@ class FtxPerpetualWebsocket():
             self._client = await websockets.connect(self._WS_URL)
             return self._client
         except Exception as e:
-            self.logger().error(f"Websocket error: '{str(e)}'", exc_info=True)
+            self.logger().error(f"Websocket error: '{self._client}' - {e}", exc_info=True)
 
     # disconnect from exchange
     async def disconnect(self):
@@ -83,12 +83,13 @@ class FtxPerpetualWebsocket():
 
     # emit messages
     async def _emit(self, data: Optional[Any] = {}) -> None:
+        if self._client is None:
+            await self.connect()
         await self._client.send(ujson.dumps(data))
         return None
 
     # request via websocket
     async def request(self, data: Optional[Any] = {}):
-
         return await self._emit(data)
 
     # subscribe to a method
