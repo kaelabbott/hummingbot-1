@@ -93,13 +93,8 @@ class FtxExchange(ExchangeBase):
         self._last_poll_timestamp = 0
         self._api_rest_client = FtxClient(ftx_api_key, ftx_secret_key, ftx_subaccount_name)
         self._check_network_interval = 60.0
-        self._order_book_tracker.start()
-        self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
-        if self._trading_required:
-            self._status_polling_task = safe_ensure_future(self._status_polling_loop())
-            safe_ensure_future(self._order_tracker_polling_loop())
-            self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
-            self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
+        self._start_network_task_ftx = None
+        self._start_network_task_ftx = safe_ensure_future(self._networking_polling_loop())
 
     @property
     def name(self) -> str:
@@ -520,24 +515,22 @@ class FtxExchange(ExchangeBase):
                                                       "Check API key and network connection.")
                 await asyncio.sleep(0.5)
 
-    async def _order_tracker_polling_loop(self):
+    async def _networking_polling_loop(self):
         """
-        Periodically update user balances and order status via REST API. This serves as a fallback measure for web
-        socket API updates.
+        Periodically update trading rule.
         """
         while True:
             try:
-                self._order_book_tracker.start()
-                await asyncio.sleep(60)
+                await safe_gather(self.start_network())
+                await asyncio.sleep(self._check_network_interval)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                self.logger().error(str(e), exc_info=True)
-                self.logger().network("Unexpected error while fetching account updates.",
+                self.logger().network(f"Unexpected error while fetching trading rules. Error: {str(e)}",
                                       exc_info=True,
-                                      app_warning_msg="Could not fetch account updates from FTX. "
-                                                      "Check API key and network connection.")
-                await asyncio.sleep(60)
+                                      app_warning_msg="Could not fetch new trading rules from Crypto.com. "
+                                                      "Check network connection.")
+                await asyncio.sleep(0.5)
 
     async def _update_balances(self):
         """

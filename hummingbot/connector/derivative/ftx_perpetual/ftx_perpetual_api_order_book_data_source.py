@@ -180,7 +180,6 @@ class FtxPerpetualAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         continue
                     for trading_pair in self._trading_pairs:
                         try:
-                            print(trading_pair)
                             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair)
                             snapshot_timestamp: float = time.time()
                             snapshot_msg: OrderBookMessage = FtxPerpetualOrderBook.snapshot_message_from_exchange(
