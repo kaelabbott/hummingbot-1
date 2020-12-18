@@ -13,7 +13,7 @@ import math
 import time
 from async_timeout import timeout
 
-
+from hummingbot.connector.derivative.position import Position
 from hummingbot.core.network_iterator import NetworkStatus
 from hummingbot.logger import HummingbotLogger
 from hummingbot.core.clock import Clock
@@ -33,7 +33,8 @@ from hummingbot.core.event.events import (
     MarketOrderFailureEvent,
     OrderType,
     TradeType,
-    TradeFee
+    TradeFee,
+    PositionSide,
 )
 from hummingbot.connector.derivative_base import DerivativeBase
 from hummingbot.connector.derivative.ftx_perpetual.ftx_perpetual_order_book_tracker import FtxPerpetualOrderBookTracker
@@ -97,6 +98,7 @@ class FtxPerpetualDerivative(DerivativeBase):
         self._start_network_task_ftx = safe_ensure_future(self._networking_polling_loop())
         self._position_mode = None
         self._funding_rate = 0
+        self._account_positions = {}
 
     @property
     def name(self) -> str:
@@ -529,6 +531,7 @@ class FtxPerpetualDerivative(DerivativeBase):
                 await safe_gather(
                     self._update_balances(),
                     self._update_order_status(),
+                    self._update_positions()
                 )
                 self._last_poll_timestamp = self.current_timestamp
             except asyncio.CancelledError:
@@ -626,6 +629,8 @@ class FtxPerpetualDerivative(DerivativeBase):
         updated = tracked_order.update_with_trade_update(trade_msg)
         if not updated:
             return
+        print(tracked_order)
+        print(trade_msg)
         self.trigger_event(
             MarketEvent.OrderFilled,
             OrderFilledEvent(
@@ -721,6 +726,32 @@ class FtxPerpetualDerivative(DerivativeBase):
         await self._update_positions()
         return self._account_positions.get(trading_pair)
     """
+    async def _update_positions(self):
+        # local_position_names = set(self._account_positions.keys())
+        # remote_position_names = set()
+        account_info = self._api_rest_client.get_account_info()
+        print(account_info)
+        for position in account_info['positions']:
+            if position.get("entryPrice") is None:
+                position_entry_price_ftx = '0.0'
+            else:
+                position_entry_price_ftx = position.get("entryPrice")
+            position_side_ftx = 'SHORT' if position.get('side') == 'sell' else 'LONG'
+            trading_pair = position.get("future")
+            position_side = PositionSide[position_side_ftx]
+            unrealized_pnl = Decimal(position.get("unrealizedPnl"))
+            entry_price = Decimal(position_entry_price_ftx)
+            amount = Decimal(position.get("size"))
+            leverage = Decimal(account_info.get("leverage"))
+            if amount > 0:
+                self._account_positions[trading_pair + position_side.name] = Position(
+                    trading_pair=ftx_perpetual_utils.convert_to_exchange_trading_pair(trading_pair),
+                    position_side=position_side,
+                    unrealized_pnl=unrealized_pnl,
+                    entry_price=entry_price,
+                    amount=amount,
+                    leverage=leverage
+                )
 
     def tick(self, timestamp: float):
         """
