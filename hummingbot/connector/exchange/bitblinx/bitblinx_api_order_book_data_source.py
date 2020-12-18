@@ -70,8 +70,11 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         update_id = time.time()
         bids = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['buy']]
         asks = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['sell']]
-        if not bids or not asks:
-            return False
+
+        if not bids:
+            bids = [OrderBookRow('0.00', '0.00', update_id)]
+        if not asks:
+            asks = [OrderBookRow('0.00', '0.00', update_id)]
         return {
             "symbol": pair,
             "bids": bids,
@@ -169,7 +172,6 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
                         # await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
                         # await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # snapshot
-
                         async for raw_msg in self._get_response(ws):
                             msg = self._prepare_trade(raw_msg)
                             if msg:
@@ -217,7 +219,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 snapshot = self._prepare_snapshot(trading_pair, raw_msg)
                             if snapshot:
                                 snapshot_timestamp: float = time.time()
-                                snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
+                                snapshot_msg: OrderBookMessage = BitblinxOrderBook.diff_message_from_exchange(
                                     snapshot,
                                     snapshot_timestamp
                                 )

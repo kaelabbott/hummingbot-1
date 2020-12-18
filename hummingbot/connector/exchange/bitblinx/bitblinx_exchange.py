@@ -613,7 +613,7 @@ class BitblinxExchange(ExchangeBase):
         remote_asset_names = set()
         account_info = await self._api_request("get", "user/balances", {}, True)
         if account_info.get('result') is None:
-            self._ws_message_listener_balance('BTC/USDT')  # This parameter doesn't affect the outcome. Bitblinx still returns every balance you have.
+            await self._ws_message_listener_balance('BTC/USDT')  # This parameter doesn't affect the outcome. Bitblinx still returns every balance you have.
             return True
         for currency in account_info['result']['available']:
             asset_name = currency

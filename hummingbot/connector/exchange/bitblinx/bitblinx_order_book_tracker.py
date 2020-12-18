@@ -14,8 +14,6 @@ from hummingbot.core.data_type.order_book_tracker import (
     OrderBookTracker,
 )
 from hummingbot.logger import HummingbotLogger
-from hummingbot.connector.exchange.bitblinx.bitblinx_active_order_tracker import \
-    BitblinxActiveOrderTracker
 from hummingbot.connector.exchange.bitblinx.bitblinx_order_book import BitblinxOrderBook
 from hummingbot.connector.exchange.bitblinx.bitblinx_order_book_message import \
     BitblinxOrderBookMessage
@@ -53,7 +51,6 @@ class BitblinxOrderBookTracker(OrderBookTracker):
             lambda: deque(maxlen=SAVED_MESSAGES_QUEUE_SIZE)
         )
         self._trading_pairs: Optional[List[str]] = trading_pairs
-        self._active_order_trackers: TRACKER_TYPE = defaultdict(BitblinxActiveOrderTracker)
 
     @property
     def exchange_name(self) -> str:
