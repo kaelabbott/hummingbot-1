@@ -730,7 +730,6 @@ class FtxPerpetualDerivative(DerivativeBase):
         # local_position_names = set(self._account_positions.keys())
         # remote_position_names = set()
         account_info = self._api_rest_client.get_account_info()
-        print(account_info)
         for position in account_info['positions']:
             if position.get("entryPrice") is None:
                 position_entry_price_ftx = '0.0'
