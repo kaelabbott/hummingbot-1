@@ -629,8 +629,6 @@ class FtxPerpetualDerivative(DerivativeBase):
         updated = tracked_order.update_with_trade_update(trade_msg)
         if not updated:
             return
-        print(tracked_order)
-        print(trade_msg)
         self.trigger_event(
             MarketEvent.OrderFilled,
             OrderFilledEvent(
