@@ -100,22 +100,30 @@ class BitblinxOrderBookTracker(OrderBookTracker):
                 await asyncio.sleep(self.EXCEPTION_TIME_SLEEP)
 
     async def _track_single_book(self, trading_pair: str):
+        past_diffs_window: Deque[OrderBookMessage] = deque()
+        self._past_diffs_windows[trading_pair] = past_diffs_window
+
         message_queue: asyncio.Queue = self._tracking_message_queues[trading_pair]
         order_book: OrderBook = self._order_books[trading_pair]
         last_message_timestamp: float = time.time()
         diff_messages_accepted: int = 0
+
         while True:
             try:
-                message: OrderBookMessage = await message_queue.get()
-                for m in message.content['bids']:
-                    if type(m) != dict:
-                        self._convert_snapshot_message_to_order_book_row(message)
-                        break
-                    else:
-                        break
+                message: OrderBookMessage = None
+                saved_messages: Deque[OrderBookMessage] = self._saved_message_queues[trading_pair]
+
+                # Process saved messages first if there are any
+                if len(saved_messages) > 0:
+                    message = saved_messages.popleft()
+                else:
+                    message = await message_queue.get()
+
                 if message.type is OrderBookMessageType.DIFF:
-                    # Huobi websocket messages contain the entire order book state so they should be treated as snapshots
-                    order_book.apply_snapshot(message.bids, message.asks, message.update_id)
+                    order_book.apply_diffs(message.bids, message.asks, message.update_id)
+                    past_diffs_window.append(message)
+                    while len(past_diffs_window) > self.PAST_DIFF_WINDOW_SIZE:
+                        past_diffs_window.popleft()
                     diff_messages_accepted += 1
 
                     # Output some statistics periodically.
@@ -126,22 +134,15 @@ class BitblinxOrderBookTracker(OrderBookTracker):
                         diff_messages_accepted = 0
                     last_message_timestamp = now
                 elif message.type is OrderBookMessageType.SNAPSHOT:
-                    order_book.apply_snapshot(message.bids, message.asks, message.update_id)
+                    past_diffs: List[OrderBookMessage] = list(past_diffs_window)
+                    order_book.restore_from_snapshot_and_diffs(message, past_diffs)
                     self.logger().debug("Processed order book snapshot for %s.", trading_pair)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self.logger().network(
-                    f"Unexpected error tracking order book for {trading_pair}. {message}",
+                    f"Unexpected error tracking order book for {trading_pair}.",
                     exc_info=True,
-                    app_warning_msg=f"{message} Unexpected error tracking order book. Retrying after 5 seconds. "
+                    app_warning_msg="Unexpected error tracking order book. Retrying after 5 seconds."
                 )
                 await asyncio.sleep(5.0)
-
-    def _convert_snapshot_message_to_order_book_row(self, message):
-        """
-        Convert an incoming diff message to Tuple of np.arrays, and then convert to OrderBookRow
-        :returns: Tuple(List[bids_row], List[asks_row])
-        """
-        message.content['bids'] = [{'price': item.price, 'quantity': item.amount} for item in message.content['bids']]
-        message.content['asks'] = [{'price': item.price, 'quantity': item.amount} for item in message.content['asks']]

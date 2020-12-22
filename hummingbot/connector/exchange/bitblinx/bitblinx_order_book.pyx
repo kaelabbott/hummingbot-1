@@ -17,7 +17,7 @@ _logger = None
 
 EXCHANGE_NAME = 'bitblinx'
 
-class BitblinxOrderBook(OrderBook):
+cdef class BitblinxOrderBook(OrderBook):
     @classmethod
     def logger(cls) -> HummingbotLogger:
         global _logger
@@ -39,7 +39,7 @@ class BitblinxOrderBook(OrderBook):
 
         if metadata:
             msg.update(metadata)
-        
+
         return BitblinxOrderBookMessage(
             message_type=OrderBookMessageType.SNAPSHOT,
             content=msg,
@@ -64,22 +64,15 @@ class BitblinxOrderBook(OrderBook):
     def diff_message_from_exchange(cls,
                                    msg: Dict[str, any],
                                    timestamp: Optional[float] = None,
-                                   metadata: Optional[Dict] = None):
-        """
-        Convert json diff data into standard OrderBookMessage format
-        :param msg: json diff data from live web socket stream
-        :param timestamp: timestamp attached to incoming data
-        :return: BitblinxOrderBookMessage
-        """
-
+                                   metadata: Optional[Dict] = None) -> OrderBookMessage:
         if metadata:
             msg.update(metadata)
-
-        return BitblinxOrderBookMessage(
-            message_type=OrderBookMessageType.DIFF,
-            content=msg,
-            timestamp=timestamp
-        )
+        return OrderBookMessage(OrderBookMessageType.DIFF, {
+            "trading_pair": msg["symbol"].replace('/', '-'),
+            "update_id": timestamp,
+            "bids": msg["buy"],
+            "asks": msg["sell"]
+        }, timestamp=timestamp)
 
     @classmethod
     def diff_message_from_db(cls, record: RowProxy, metadata: Optional[Dict] = None):

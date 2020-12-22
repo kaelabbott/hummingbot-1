@@ -45,9 +45,6 @@ class BitblinxAPIUserStreamDataSource(UserStreamTrackerDataSource):
             async for msg in ws.on_message():
                 yield msg
                 self._last_recv_time = time.time()
-                print('MESSGAE')
-                print(msg)
-
                 if (msg.get("result") is None):
                     continue
         except Exception as e:

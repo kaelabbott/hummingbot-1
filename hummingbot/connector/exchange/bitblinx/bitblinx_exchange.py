@@ -321,7 +321,7 @@ class BitblinxExchange(ExchangeBase):
             try:
                 trading_pair = rule["symbol"]
                 price_decimals = Decimal(str(rule["pricePrecision"]))
-                quantity_decimals = Decimal(str(rule["minOrderAmount"]))
+                quantity_decimals = Decimal(str(rule["amountPrecision"]))
                 # E.g. a price decimal of 2 means 0.01 incremental.
                 price_step = Decimal("1") / Decimal(str(math.pow(10, price_decimals)))
                 quantity_step = Decimal("1") / Decimal(str(math.pow(10, quantity_decimals)))
@@ -456,9 +456,6 @@ class BitblinxExchange(ExchangeBase):
         amount = self.quantize_order_amount(trading_pair, amount)
         price = self.quantize_order_price(trading_pair, price)
         order_type_ex = 'limit'
-        print('DEBUG PRICE AND AMOUNT')
-        print(price)
-        print(amount)
         if amount < trading_rule.min_order_size:
             raise ValueError(f"Buy order amount {amount} is lower than the minimum order size "
                              f"{trading_rule.min_order_size}.")
@@ -480,8 +477,6 @@ class BitblinxExchange(ExchangeBase):
                                   )
         try:
             order_result = await self._api_request("post", "orders", api_params, True)
-            print('ORDER result DEBUG')
-            print(order_result)
             exchange_order_id = str(order_result["result"]["orderID"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -622,8 +617,7 @@ class BitblinxExchange(ExchangeBase):
             return True
         for currency in account_info['result']['available']:
             asset_name = currency
-            if account_info['result']['summary'].get(asset_name) is not None:
-                self._account_available_balances[asset_name] = Decimal(str(account_info['result']['available'][asset_name]))
+            self._account_available_balances[asset_name] = Decimal(str(account_info['result']['available'][asset_name]))
             self._account_balances[asset_name] = Decimal(str(account_info['result']['total'][asset_name]))
             remote_asset_names.add(asset_name)
         asset_names_to_remove = local_asset_names.difference(remote_asset_names)

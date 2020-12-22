@@ -71,15 +71,24 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
         bids = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['buy']]
         asks = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['sell']]
 
-        if not bids:
-            bids = [OrderBookRow('0.00', '0.00', update_id)]
-        if not asks:
-            asks = [OrderBookRow('0.00', '0.00', update_id)]
         return {
             "symbol": pair,
             "bids": bids,
             "asks": asks,
         }
+
+    def _prepare_diff(self, raw_snapshot: dict) -> Dict[str, Any]:
+        """
+        Return structure of three elements:
+            symbol: traded pair symbol
+            bids: List of OrderBookRow for bids
+            asks: List of OrderBookRow for asks
+        """
+        bids = [[i['price'], i['quantity']] for i in raw_snapshot['result']['buy']]
+        asks = [[i['price'], i['quantity']] for i in raw_snapshot['result']['sell']]
+        raw_snapshot['result']['buy'] = bids
+        raw_snapshot['result']['sell'] = asks
+        return raw_snapshot
 
     async def _get_response(self, ws: websockets.WebSocketClientProtocol) -> AsyncIterable[str]:
         try:
@@ -216,11 +225,12 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                         await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
                         async for raw_msg in self._get_response(ws):
                             if raw_msg:
-                                snapshot = self._prepare_snapshot(trading_pair, raw_msg)
+                                snapshot = ujson.loads(raw_msg)
+                                snapshot = self._prepare_diff(snapshot)
                             if snapshot:
                                 snapshot_timestamp: float = time.time()
                                 snapshot_msg: OrderBookMessage = BitblinxOrderBook.diff_message_from_exchange(
-                                    snapshot,
+                                    snapshot['result'],
                                     snapshot_timestamp
                                 )
                                 output.put_nowait(snapshot_msg)
