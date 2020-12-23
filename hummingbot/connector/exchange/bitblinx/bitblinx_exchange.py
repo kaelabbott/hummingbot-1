@@ -643,21 +643,19 @@ class BitblinxExchange(ExchangeBase):
             tracked_orders = list(self._in_flight_orders.values())
             tasks = []
             for tracked_order in tracked_orders:
-                order_id = await tracked_order.get_exchange_order_id()
-                client_oid = tracked_order.client_order_id
+                if tracked_order.exchange_order_id is None:
+                    await tracked_order.get_exchange_order_id()
+                    ex_order_id = tracked_order.exchange_order_id
                 if tracked_order.last_state == 'new':  # To avoid bitblinx API error limit.
                     break
                 tasks.append(self._api_request("get",
-                                               f"orders/{order_id}",
+                                               f"orders/{ex_order_id}",
                                                is_auth_required=True))
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = await safe_gather(*tasks, return_exceptions=True)
             for update_result in update_results:
                 if isinstance(update_result, Exception):
                     raise update_result
-                if update_result['status'] is False:
-                    self.logger().info(f"_update_order_status result not in resp: {tasks}")
-                    self.stop_tracking_order(client_oid)
                 else:
                     await safe_gather(self._process_order_message(update_result))
 
