@@ -130,7 +130,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                 for item in all_trading_pairs['result']
                                 if item["isActive"] is True]
         except Exception:
-            # Do nothing if the request fails -- there will be no autocomplete for bittrex trading pairs
+            # Do nothing if the request fails -- there will be no autocomplete for bitblinx trading pairs
             pass
         return []
 
@@ -221,8 +221,6 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                             "id": 1
                         }
                         await ws.send(ujson.dumps(payload))
-                        await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # response
-                        await asyncio.wait_for(ws.recv(), timeout=self.MESSAGE_TIMEOUT)  # subscribe info
                         async for raw_msg in self._get_response(ws):
                             if raw_msg:
                                 snapshot = ujson.loads(raw_msg)

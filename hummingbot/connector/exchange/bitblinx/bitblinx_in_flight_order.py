@@ -37,7 +37,7 @@ class BitblinxInFlightOrder(InFlightOrderBase):
 
     @property
     def is_done(self) -> bool:
-        return self.last_state in {"FILLED", "CANCELED", "REJECTED", "EXPIRED", 'filled'}
+        return self.last_state in {"FILLED", "CANCELED", "REJECTED", "EXPIRED", 'filled', 'cancelled'}
 
     @property
     def is_failure(self) -> bool:

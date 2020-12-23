@@ -88,6 +88,7 @@ class BitblinxExchange(ExchangeBase):
         self._order_not_found_records = {}  # Dict[client_order_id:str, count:int]
         self._trading_rules = {}  # Dict[trading_pair:str, TradingRule]
         self._status_polling_task = None
+        self._user_stream_tracker_task = None
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
         self._last_poll_timestamp = 0
@@ -182,6 +183,7 @@ class BitblinxExchange(ExchangeBase):
         It starts tracking order book, polling trading rules,
         updating statuses and tracking user data.
         """
+        self._stop_network()
         self._order_book_tracker.start()
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
@@ -245,6 +247,8 @@ class BitblinxExchange(ExchangeBase):
                 exc_info=True,
                 app_warning_msg="Could not listen to Bitfinex messages."
             )
+        finally:
+            await self._ws.disconnect()
 
     async def check_network(self) -> NetworkStatus:
         """
@@ -327,7 +331,8 @@ class BitblinxExchange(ExchangeBase):
                 quantity_step = Decimal("1") / Decimal(str(math.pow(10, quantity_decimals)))
                 result[trading_pair] = TradingRule(trading_pair,
                                                    min_price_increment=price_step,
-                                                   min_base_amount_increment=quantity_step)
+                                                   min_base_amount_increment=quantity_step,
+                                                   min_order_size=rule['minOrderAmount'])
             except Exception:
                 self.logger().error(f"Error parsing the trading pair rule {rule}. Skipping.", exc_info=True)
         return result
@@ -477,6 +482,7 @@ class BitblinxExchange(ExchangeBase):
                                   )
         try:
             order_result = await self._api_request("post", "orders", api_params, True)
+            print(order_result)
             exchange_order_id = str(order_result["result"]["orderID"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -552,11 +558,13 @@ class BitblinxExchange(ExchangeBase):
             if tracked_order.exchange_order_id is None:
                 await tracked_order.get_exchange_order_id()
             ex_order_id = tracked_order.exchange_order_id
+            print(ex_order_id)
             result = await self._api_request(
                 "del",
                 f"orders/{ex_order_id}",
                 is_auth_required=True
             )
+            print(result)
             if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
                 self.logger().info(f"Successfully cancelled order {order_id}.")
