@@ -16,7 +16,6 @@ import time
 import ujson
 import websockets
 from websockets.exceptions import ConnectionClosed
-from hummingbot.core.data_type.order_book_row import OrderBookRow
 from hummingbot.core.utils.async_utils import safe_gather
 from hummingbot.core.data_type.order_book_tracker_data_source import OrderBookTrackerDataSource
 from hummingbot.core.data_type.order_book_message import OrderBookMessage
@@ -59,17 +58,16 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
             "price": content['result']['price'],
         }
 
-    def _prepare_snapshot(self, pair: str, raw_snapshot: dict) -> Dict[str, Any]:
-        raw_snapshot = ujson.loads(raw_snapshot)
+    def _prepare_snapshot(self, pair: str, raw_snapshot) -> Dict[str, Any]:
+        raw_snapshot = raw_snapshot
         """
         Return structure of three elements:
             symbol: traded pair symbol
             bids: List of OrderBookRow for bids
             asks: List of OrderBookRow for asks
         """
-        update_id = time.time()
-        bids = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['buy']]
-        asks = [OrderBookRow(i['price'], i['quantity'], update_id) for i in raw_snapshot['result']['sell']]
+        bids = [[i['price'], i['quantity']] for i in raw_snapshot['result']['buy']]
+        asks = [[i['price'], i['quantity']] for i in raw_snapshot['result']['sell']]
 
         return {
             "symbol": pair,
@@ -142,13 +140,12 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                 raise IOError(f"Error fetching bitblinx market snapshot for {trading_pair}. "
                               f"HTTP status is {response.status}.")
             data: Dict[str, Any] = await response.json()
-            data['result']['bids'] = data['result'].pop('buy')
-            data['result']['asks'] = data['result'].pop('sell')
-            return data['result']
+            return data
 
     async def get_new_order_book(self, trading_pair: str) -> OrderBook:
         async with aiohttp.ClientSession() as client:
             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair=trading_pair)
+            snapshot = self._prepare_snapshot(trading_pair, snapshot)
             snapshot_timestamp: float = time.time()
             snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
                 snapshot,
@@ -189,6 +186,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                     metadata={"symbol": f"{trading_pair}"}
                                 )
                                 output.put_nowait(msg_book)
+                                await asyncio.sleep(5)
 
             except Exception as err:
                 self.logger().error(err)
@@ -206,6 +204,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                                           output: asyncio.Queue):
         while True:
             try:
+                iteration_id = 1
                 trading_pairs: List[str] = self._trading_pairs
                 for trading_pair in trading_pairs:
                     async with websockets.connect(BITBLINX_WEBSOCKET) as ws:
@@ -218,22 +217,37 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                             "params": {
                                 "symbol": convert_to_exchange_trading_pair_ws(trading_pair),
                             },
-                            "id": 1
+                            "id": iteration_id
                         }
+                        iteration_id += 1
                         await ws.send(ujson.dumps(payload))
                         async for raw_msg in self._get_response(ws):
                             if raw_msg:
                                 snapshot = ujson.loads(raw_msg)
+                                method = snapshot['method']
+                            else:
+                                continue
+                            if method == 'snapshotBook':
+                                snapshot = self._prepare_snapshot(trading_pair, snapshot)
+                                snapshot_timestamp: float = time.time()
+                                snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
+                                    snapshot,
+                                    snapshot_timestamp,
+                                    metadata={"trading_pair": trading_pair}
+                                )
+                                output.put_nowait(snapshot_msg)
+                                self.logger().debug(f"Saved order book snapshot for {trading_pair}")
+
+                            else:
+                                break
                                 snapshot = self._prepare_diff(snapshot)
-                            if snapshot:
                                 snapshot_timestamp: float = time.time()
                                 snapshot_msg: OrderBookMessage = BitblinxOrderBook.diff_message_from_exchange(
                                     snapshot['result'],
                                     snapshot_timestamp
                                 )
                                 output.put_nowait(snapshot_msg)
-                            else:
-                                continue
+
             except Exception as err:
                 self.logger().error(err)
                 self.logger().network(
@@ -252,6 +266,7 @@ class BitblinxAPIOrderBookDataSource(OrderBookTrackerDataSource):
                     for trading_pair in self._trading_pairs:
                         try:
                             snapshot: Dict[str, Any] = await self.get_snapshot(client, trading_pair)
+                            snapshot = self._prepare_snapshot(trading_pair, snapshot)
                             snapshot_timestamp: float = time.time()
                             snapshot_msg: OrderBookMessage = BitblinxOrderBook.snapshot_message_from_exchange(
                                 snapshot,

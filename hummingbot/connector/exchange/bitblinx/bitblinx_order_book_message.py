@@ -2,11 +2,9 @@
 
 from typing import (
     Dict,
-    List,
     Optional,
 )
 import pandas as pd
-from hummingbot.core.data_type.order_book_row import OrderBookRow
 from hummingbot.core.data_type.order_book_message import (
     OrderBookMessage,
     OrderBookMessageType,
@@ -26,7 +24,6 @@ class BitblinxOrderBookMessage(OrderBookMessage):
             if message_type is OrderBookMessageType.SNAPSHOT:
                 raise ValueError("timestamp must not be None when initializing snapshot messages.")
             timestamp = pd.Timestamp(content["mts"], tz="UTC").timestamp()
-            
 
         return super(BitblinxOrderBookMessage, cls).__new__(
             cls, message_type, content, timestamp=timestamp, *args, **kwargs
@@ -51,27 +48,6 @@ class BitblinxOrderBookMessage(OrderBookMessage):
             return self.content["trading_pair"]
         elif "symbol" in self.content:
             return self.content["symbol"]
-
-    @property
-    def asks(self) -> List[OrderBookRow]:
-        asks = self.content['asks']
-        if not asks:
-            return
-        
-        return [
-            OrderBookRow(float(ask['price']), float(ask['quantity']), self.update_id) if 'price' in ask else OrderBookRow(float(ask[0]), float(ask[1]),self.update_id) for ask in asks
-        ]
-
-
-    @property
-    def bids(self) -> List[OrderBookRow]:
-        bids = self.content['bids']
-        if not bids:
-            return
-
-        return [
-            OrderBookRow(float(bid['price']), float(bid['quantity']), self.update_id) for bid in bids
-        ]
 
     def __eq__(self, other) -> bool:
         return self.type == other.type and self.timestamp == other.timestamp

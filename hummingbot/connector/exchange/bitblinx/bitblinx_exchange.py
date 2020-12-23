@@ -482,7 +482,6 @@ class BitblinxExchange(ExchangeBase):
                                   )
         try:
             order_result = await self._api_request("post", "orders", api_params, True)
-            print(order_result)
             exchange_order_id = str(order_result["result"]["orderID"])
             tracked_order = self._in_flight_orders.get(order_id)
             if tracked_order is not None and exchange_order_id:
@@ -558,13 +557,11 @@ class BitblinxExchange(ExchangeBase):
             if tracked_order.exchange_order_id is None:
                 await tracked_order.get_exchange_order_id()
             ex_order_id = tracked_order.exchange_order_id
-            print(ex_order_id)
             result = await self._api_request(
                 "del",
                 f"orders/{ex_order_id}",
                 is_auth_required=True
             )
-            print(result)
             if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
                 self.logger().info(f"Successfully cancelled order {order_id}.")
@@ -645,7 +642,7 @@ class BitblinxExchange(ExchangeBase):
             for tracked_order in tracked_orders:
                 if tracked_order.exchange_order_id is None:
                     await tracked_order.get_exchange_order_id()
-                    ex_order_id = tracked_order.exchange_order_id
+                ex_order_id = tracked_order.exchange_order_id
                 if tracked_order.last_state == 'new':  # To avoid bitblinx API error limit.
                     break
                 tasks.append(self._api_request("get",
