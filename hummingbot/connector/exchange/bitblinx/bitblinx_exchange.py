@@ -245,7 +245,7 @@ class BitblinxExchange(ExchangeBase):
             self.logger().network(
                 "Unexpected error while listeneing to messages.",
                 exc_info=True,
-                app_warning_msg="Could not listen to Bitfinex messages."
+                app_warning_msg="Could not listen to bitblinx messages."
             )
         finally:
             await self._ws.disconnect()
@@ -362,11 +362,21 @@ class BitblinxExchange(ExchangeBase):
 
         if method == "get":
             response = await client.get(url, headers=headers)
+            print("\n\n GET # --------------------------- \n")
+            print(f"url: {url}")
+            print(f"response {await response.text()}\n")
         elif method == "post":
             post_json = json.dumps(params)
             response = await client.post(url, data=post_json, headers=headers)
+            print("\n\n POST # --------------------------- \n")
+            print(f"url: {url}")
+            print(f"params: {url}\n")
+            print(f"response {await response.text()}")
         elif method == "del":
             response = await client.delete(url, headers=headers)
+            print("\n\n DELETE # --------------------------- \n")
+            print(f"url: {url}")
+            print(f"response {await response.text()}")
         else:
             raise NotImplementedError
         try:
@@ -557,11 +567,15 @@ class BitblinxExchange(ExchangeBase):
             if tracked_order.exchange_order_id is None:
                 await tracked_order.get_exchange_order_id()
             ex_order_id = tracked_order.exchange_order_id
+            # Cancel failure somethimes
             result = await self._api_request(
                 "del",
                 f"orders/{ex_order_id}",
                 is_auth_required=True
             )
+            print('----DELETE')
+            print(result)
+            print(ex_order_id)
             if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
                 self.logger().info(f"Successfully cancelled order {order_id}.")
@@ -643,8 +657,6 @@ class BitblinxExchange(ExchangeBase):
                 if tracked_order.exchange_order_id is None:
                     await tracked_order.get_exchange_order_id()
                 ex_order_id = tracked_order.exchange_order_id
-                if tracked_order.last_state == 'new':  # To avoid bitblinx API error limit.
-                    break
                 tasks.append(self._api_request("get",
                                                f"orders/{ex_order_id}",
                                                is_auth_required=True))
@@ -665,7 +677,11 @@ class BitblinxExchange(ExchangeBase):
         tracked_orders = list(self._in_flight_orders.values())
         client_order_id = order_msg.get('orderID')
         if client_order_id is None:
-            client_order_id = order_msg['result']["orderID"]
+            # Sometimes ORDER NOT FOUND
+            if order_msg['status'] is False:
+                return
+            else:
+                client_order_id = order_msg['result']["orderID"]
         for item in tracked_orders:
             if client_order_id != item.exchange_order_id:
                 tracked_order = item
@@ -829,6 +845,7 @@ class BitblinxExchange(ExchangeBase):
                 channel = event_message["method"]
                 if "newUserTrade" in channel:
                     await self._process_trade_message(event_message['result'])
+                    # Need to look for a better way to update the balance. changed to websocket cause API gave rate limits too.
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 elif "orderUpdate" in channel:
                     await self._process_order_message(event_message["result"])
