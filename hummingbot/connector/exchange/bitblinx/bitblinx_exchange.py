@@ -362,24 +362,11 @@ class BitblinxExchange(ExchangeBase):
 
         if method == "get":
             response = await client.get(url, headers=headers)
-            print("\n\n GET # --------------------------- \n")
-            print(f"url: {url}")
-            print(response.status)
-            print(f"response {await response.text()}\n")
         elif method == "post":
             post_json = json.dumps(params)
             response = await client.post(url, data=post_json, headers=headers)
-            print("\n\n POST # --------------------------- \n")
-            print(f"url: {url}")
-            print(response.status)
-            print(f"params: {url}\n")
-            print(f"response {await response.text()}")
         elif method == "del":
             response = await client.delete(url, headers=headers)
-            print("\n\n DELETE # --------------------------- \n")
-            print(response.status)
-            print(f"url: {url}")
-            print(f"response {await response.text()}")
         else:
             raise NotImplementedError
         try:
@@ -576,8 +563,8 @@ class BitblinxExchange(ExchangeBase):
                 f"orders/{ex_order_id}",
                 is_auth_required=True
             )
-            if result["status"] is True:
-                tracked_order.last_state = result['result']['status']
+            if result["status"] is True or result.get('code') == 404 or result.get('code') == '404':
+                tracked_order.last_state = 'cancelled'
                 self.logger().info(f"Successfully cancelled order {order_id}.")
                 self.trigger_event(
                     MarketEvent.OrderCancelled,
