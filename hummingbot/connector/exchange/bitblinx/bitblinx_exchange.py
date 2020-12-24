@@ -672,7 +672,7 @@ class BitblinxExchange(ExchangeBase):
                             )
                         )
                         tracked_order.cancelled_event.set()
-                        self.stop_tracking_order(tracked_order.order_id)
+                        self.stop_tracking_order(tracked_order.client_order_id)
                 if isinstance(update_result, Exception):
                     raise update_result
                 else:
@@ -709,8 +709,8 @@ class BitblinxExchange(ExchangeBase):
                                    self.current_timestamp,
                                    tracked_order.client_order_id))
             tracked_order.cancelled_event.set()
+            self.stop_tracking_order(tracked_order.client_order_id)
         elif tracked_order.is_failure:
-            self.stop_tracking_order(client_order_id)
             self.logger().info(f"The market order {client_order_id} has failed according to order status API. ")
             self.trigger_event(MarketEvent.OrderFailure,
                                MarketOrderFailureEvent(
@@ -718,6 +718,7 @@ class BitblinxExchange(ExchangeBase):
                                    tracked_order.client_order_id,
                                    tracked_order.order_type
                                ))
+            self.stop_tracking_order(tracked_order.client_order_id)
         self.logger().info(f"_Returning_comparing ID- {client_order_id} - {self.in_flight_orders}")
         return
 
