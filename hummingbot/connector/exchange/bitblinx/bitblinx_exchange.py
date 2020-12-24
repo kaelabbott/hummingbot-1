@@ -364,17 +364,20 @@ class BitblinxExchange(ExchangeBase):
             response = await client.get(url, headers=headers)
             print("\n\n GET # --------------------------- \n")
             print(f"url: {url}")
+            print(response.status)
             print(f"response {await response.text()}\n")
         elif method == "post":
             post_json = json.dumps(params)
             response = await client.post(url, data=post_json, headers=headers)
             print("\n\n POST # --------------------------- \n")
             print(f"url: {url}")
+            print(response.status)
             print(f"params: {url}\n")
             print(f"response {await response.text()}")
         elif method == "del":
             response = await client.delete(url, headers=headers)
             print("\n\n DELETE # --------------------------- \n")
+            print(response.status)
             print(f"url: {url}")
             print(f"response {await response.text()}")
         else:
@@ -567,15 +570,12 @@ class BitblinxExchange(ExchangeBase):
             if tracked_order.exchange_order_id is None:
                 await tracked_order.get_exchange_order_id()
             ex_order_id = tracked_order.exchange_order_id
-            # Cancel failure somethimes
+            # Cancel failure somethimes. SEE why. 404 are not handle
             result = await self._api_request(
                 "del",
                 f"orders/{ex_order_id}",
                 is_auth_required=True
             )
-            print('----DELETE')
-            print(result)
-            print(ex_order_id)
             if result["status"] is True:
                 tracked_order.last_state = result['result']['status']
                 self.logger().info(f"Successfully cancelled order {order_id}.")
@@ -663,6 +663,10 @@ class BitblinxExchange(ExchangeBase):
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = await safe_gather(*tasks, return_exceptions=True)
             for update_result in update_results:
+                print(update_result)
+                if update_result.get('code') is not None:
+                    print(update_result)
+                    print("CODE")
                 if isinstance(update_result, Exception):
                     raise update_result
                 else:
