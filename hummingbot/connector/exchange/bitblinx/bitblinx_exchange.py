@@ -662,10 +662,17 @@ class BitblinxExchange(ExchangeBase):
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = await safe_gather(*tasks, return_exceptions=True)
             for update_result in update_results:
-                print(update_result)
                 if update_result.get('code') is not None:
-                    print(update_result)
-                    print("CODE")
+                    if update_result.get('code') == '404' or update_result.get('code') == 404:
+                        self.trigger_event(
+                            MarketEvent.OrderCancelled,
+                            OrderCancelledEvent(
+                                self.current_timestamp,
+                                tracked_order.client_order_id
+                            )
+                        )
+                        tracked_order.cancelled_event.set()
+                        self.stop_tracking_order(tracked_order.order_id)
                 if isinstance(update_result, Exception):
                     raise update_result
                 else:
