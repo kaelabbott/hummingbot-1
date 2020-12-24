@@ -592,7 +592,6 @@ class BitblinxExchange(ExchangeBase):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            self.stop_tracking_order(order_id)
             self.logger().network(
                 f"Failed to cancel order {order_id}: {str(e)}",
                 exc_info=True,
