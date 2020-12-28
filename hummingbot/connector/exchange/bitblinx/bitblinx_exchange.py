@@ -93,6 +93,7 @@ class BitblinxExchange(ExchangeBase):
         self._trading_rules_polling_task = None
         self._last_poll_timestamp = 0
         self._ws = BitblinxWebsocket(self._bitblinx_auth)
+        self._erase_all_task = None
 
     @property
     def name(self) -> str:
@@ -289,6 +290,11 @@ class BitblinxExchange(ExchangeBase):
                                                       "Check network connection.")
                 await asyncio.sleep(0.5)
 
+    async def _cancel_all_fix(self):
+        symbol_info = await self._api_request("get", path_url="symbols")
+        self._trading_rules.clear()
+        self._trading_rules = self._format_trading_rules(symbol_info)
+
     async def _update_trading_rules(self):
         symbol_info = await self._api_request("get", path_url="symbols")
         self._trading_rules.clear()
@@ -457,13 +463,9 @@ class BitblinxExchange(ExchangeBase):
         """
         if not order_type.is_limit_type():
             raise Exception(f"Unsupported order type: {order_type}")
-        trading_rule = self._trading_rules[bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair)]
         amount = self.quantize_order_amount(trading_pair, amount)
         price = self.quantize_order_price(trading_pair, price)
         order_type_ex = 'limit'
-        if amount < trading_rule.min_order_size:
-            raise ValueError(f"Buy order amount {amount} is lower than the minimum order size "
-                             f"{trading_rule.min_order_size}.")
         if order_type is OrderType.LIMIT_MAKER:
             order_type_ex = 'limit'
         api_params = {"symbol": bitblinx_utils.convert_to_exchange_trading_pair_ws(trading_pair),
@@ -563,7 +565,7 @@ class BitblinxExchange(ExchangeBase):
                 f"orders/{ex_order_id}",
                 is_auth_required=True
             )
-            if result["status"] is True or result.get('code') == 404 or result.get('code') == '404':
+            if result["status"] is True:
                 tracked_order.last_state = 'cancelled'
                 self.logger().info(f"Successfully cancelled order {order_id}.")
                 self.trigger_event(
@@ -575,6 +577,23 @@ class BitblinxExchange(ExchangeBase):
                 )
                 tracked_order.cancelled_event.set()
                 self.stop_tracking_order(order_id)
+                return order_id
+            if result.get('code') == 404 or result.get('code') == '404':
+                order_status = await self._api_request(
+                    "get",
+                    f"orders/{ex_order_id}",
+                    is_auth_required=True)
+                if order_status['status'] is False:
+                    tracked_order.last_state = 'cancelled'
+                    self.trigger_event(
+                        MarketEvent.OrderCancelled,
+                        OrderCancelledEvent(
+                            self.current_timestamp,
+                            tracked_order.client_order_id
+                        )
+                    )
+                    tracked_order.cancelled_event.set()
+                    self.stop_tracking_order(order_id)
                 return order_id
         except asyncio.CancelledError:
             raise
@@ -649,17 +668,6 @@ class BitblinxExchange(ExchangeBase):
             self.logger().debug(f"Polling for order status updates of {len(tasks)} orders.")
             update_results = await safe_gather(*tasks, return_exceptions=True)
             for update_result in update_results:
-                if update_result.get('code') is not None:
-                    if update_result.get('code') == '404' or update_result.get('code') == 404:
-                        self.trigger_event(
-                            MarketEvent.OrderCancelled,
-                            OrderCancelledEvent(
-                                self.current_timestamp,
-                                tracked_order.client_order_id
-                            )
-                        )
-                        tracked_order.cancelled_event.set()
-                        self.stop_tracking_order(tracked_order.client_order_id)
                 if isinstance(update_result, Exception):
                     raise update_result
                 else:
@@ -836,7 +844,7 @@ class BitblinxExchange(ExchangeBase):
     async def _user_stream_event_listener(self):
         """
         Listens to message in _user_stream_tracker.user_stream queue. The messages are put in by
-        CryptoComAPIUserStreamDataSource.
+        .
         """
         async for event_message in self._iter_user_event_queue():
             try:
@@ -846,7 +854,7 @@ class BitblinxExchange(ExchangeBase):
                     # Need to look for a better way to update the balance. changed to websocket cause API gave rate limits too.
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 elif "orderUpdate" in channel:
-                    await self._process_order_message(event_message["result"])
+                    # await self._process_order_message(event_message["result"])
                     await self._ws_message_listener_balance(event_message['result']['symbol'])
                 pass
             except asyncio.CancelledError:
