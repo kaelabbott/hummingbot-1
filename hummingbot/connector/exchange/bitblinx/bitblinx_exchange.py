@@ -43,7 +43,6 @@ from hummingbot.connector.exchange.bitblinx.bitblinx_auth import BitblinxAuth
 from hummingbot.connector.exchange.bitblinx.bitblinx_in_flight_order import BitblinxInFlightOrder
 from hummingbot.connector.exchange.bitblinx import bitblinx_utils
 from hummingbot.connector.exchange.bitblinx import BITBLINX_REST
-from hummingbot.connector.exchange.bitblinx.bitblinx_websocket import BitblinxWebsocket
 ctce_logger = None
 s_decimal_NaN = Decimal("nan")
 
@@ -92,8 +91,6 @@ class BitblinxExchange(ExchangeBase):
         self._user_stream_event_listener_task = None
         self._trading_rules_polling_task = None
         self._last_poll_timestamp = 0
-        self._ws = BitblinxWebsocket(self._bitblinx_auth)
-        self._erase_all_task = None
 
     @property
     def name(self) -> str:
@@ -184,7 +181,6 @@ class BitblinxExchange(ExchangeBase):
         It starts tracking order book, polling trading rules,
         updating statuses and tracking user data.
         """
-        self._stop_network()
         self._order_book_tracker.start()
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
@@ -637,7 +633,6 @@ class BitblinxExchange(ExchangeBase):
         remote_asset_names = set()
         account_info = await self._api_request("get", "user/balances", {}, True)
         if account_info.get('result') is None:
-            await self._ws_message_listener_balance('BTC/USDT')  # This parameter doesn't affect the outcome. Bitblinx still returns every balance you have.
             return True
         for currency in account_info['result']['available']:
             asset_name = currency
@@ -671,7 +666,7 @@ class BitblinxExchange(ExchangeBase):
                 if isinstance(update_result, Exception):
                     raise update_result
                 else:
-                    await safe_gather(self._process_order_message(update_result))
+                    pass
 
     async def _process_order_message(self, order_msg: Dict[str, Any]):
         """
@@ -848,15 +843,11 @@ class BitblinxExchange(ExchangeBase):
         """
         async for event_message in self._iter_user_event_queue():
             try:
-                channel = event_message["method"]
+                channel = event_message.get('method')
                 if "newUserTrade" in channel:
                     await self._process_trade_message(event_message['result'])
-                    # Need to look for a better way to update the balance. changed to websocket cause API gave rate limits too.
-                    await self._ws_message_listener_balance(event_message['result']['symbol'])
                 elif "orderUpdate" in channel:
-                    # await self._process_order_message(event_message["result"])
-                    await self._ws_message_listener_balance(event_message['result']['symbol'])
-                pass
+                    pass
             except asyncio.CancelledError:
                 raise
             except Exception:
