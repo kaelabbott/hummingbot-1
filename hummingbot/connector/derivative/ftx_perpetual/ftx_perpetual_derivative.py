@@ -189,9 +189,12 @@ class FtxPerpetualDerivative(DerivativeBase):
         It starts tracking order book, polling trading rules,
         updating statuses and tracking user data.
         """
+        print('START')
+        self._stop_network()
         self._order_book_tracker.start()
         self._trading_rules_polling_task = safe_ensure_future(self._trading_rules_polling_loop())
         if self._trading_required:
+            safe_ensure_future(self._order_book_tracker_polling_loop())
             self._status_polling_task = safe_ensure_future(self._status_polling_loop())
             self._user_stream_tracker_task = safe_ensure_future(self._user_stream_tracker.start())
             self._user_stream_event_listener_task = safe_ensure_future(self._user_stream_event_listener())
@@ -243,10 +246,26 @@ class FtxPerpetualDerivative(DerivativeBase):
         """
         Periodically update trading rule.
         """
+        try:
+            await safe_gather(self.start_network())
+            await asyncio.sleep(self._check_network_interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger().network(f"Unexpected error while fetching trading rules. Error: {str(e)}",
+                                  exc_info=True,
+                                  app_warning_msg="Could not fetch new trading rules from Crypto.com. "
+                                                  "Check network connection.")
+            await asyncio.sleep(0.5)
+
+    async def _trading_rules_polling_loop(self):
+        """
+        Periodically update trading rule.
+        """
         while True:
             try:
-                await safe_gather(self.start_network())
-                await asyncio.sleep(self._check_network_interval)
+                await self._update_trading_rules()
+                await asyncio.sleep(60)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -256,13 +275,13 @@ class FtxPerpetualDerivative(DerivativeBase):
                                                       "Check network connection.")
                 await asyncio.sleep(0.5)
 
-    async def _trading_rules_polling_loop(self):
+    async def _order_book_tracker_polling_loop(self):
         """
         Periodically update trading rule.
         """
         while True:
             try:
-                await self._update_trading_rules()
+                self._order_book_tracker.start()
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
                 raise
@@ -817,8 +836,9 @@ class FtxPerpetualDerivative(DerivativeBase):
                         await self._process_trade_message(event_message['data'])
                         await safe_gather(self._update_balances())
                     elif "orders" in channel:
-                        await self._process_order_message(event_message['data'])
-                        await safe_gather(self._update_balances())
+                        # await self._process_order_message(event_message['data'])
+                        # await safe_gather(self._update_balances())
+                        pass
                 else:
                     continue
             except asyncio.CancelledError:
